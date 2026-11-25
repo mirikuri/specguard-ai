@@ -8,13 +8,21 @@ import re
 
 from ..models import Segment
 
-HEADING = re.compile(r"^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
+HEADING = re.compile(r"^ {0,3}(#{1,6})\s+(\S.*)$")
 FENCE = re.compile(r"^ {0,3}(```+|~~~+)")
 BULLET = re.compile(r"^\s*[*+\-•]\s+")
 ORDERED = re.compile(r"^\s*(\d+)[.)]\s+")
-RULER = re.compile(r"^\s*([-*_])(\s*\1){2,}\s*$")
-TABLE_SEP = re.compile(r"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$")
-SOURCE_ID = re.compile(r"^[\s*_`\-•+]*([A-Za-zА-Яа-яЁё]{1,6}(?:[-‑–.][A-Za-zА-Яа-яЁё]{1,6})?[-‑– ]?\d+(?:\.\d+)*)\s*(?:[.:)]|\*\*)")
+SOURCE_ID = re.compile(r"^[\s*_`\-•+]*([A-Za-zА-Яа-яЁё]{1,6}(?:[-‑–.][A-Za-zА-Яа-яЁё]{1,6})?[-‑–]\d+(?:\.\d+)*|[A-ZА-ЯЁ]{1,2}\d+(?:\.\d+)*)\s*(?:[.:)]|\*\*)")
+
+
+def is_ruler(line: str) -> bool:
+    s = "".join(line.split())
+    return len(s) >= 3 and s[0] in "-*_" and len(set(s)) == 1
+
+
+def is_separator(line: str) -> bool:
+    cells = line.strip().strip("|").split("|")
+    return "|" in line and all(re.fullmatch(r":?-+:?", c.strip()) for c in cells)
 
 
 def clean(s: str) -> str:
@@ -51,22 +59,21 @@ def parse_markdown(text: str, page_starts: list[int] | None = None) -> list[Segm
     def starts_block(k):
         line = lines[k][0]
         return (not line.strip() or HEADING.match(line) or FENCE.match(line) or BULLET.match(line)
-                or ORDERED.match(line) or RULER.match(line) or SOURCE_ID.match(line) or is_table(k))
+                or ORDERED.match(line) or is_ruler(line) or SOURCE_ID.match(line) or is_table(k))
 
     def is_table(k):
-        return ("|" in lines[k][0] and k + 1 < len(lines) and "|" in lines[k + 1][0]
-                and bool(TABLE_SEP.match(lines[k + 1][0])))
+        return ("|" in lines[k][0] and k + 1 < len(lines) and is_separator(lines[k + 1][0]))
 
     i = 0
     while i < len(lines):
         line, start = lines[i]
-        if not line.strip() or RULER.match(line):
+        if not line.strip() or is_ruler(line):
             i += 1
         elif m := HEADING.match(line):
             level = len(m[1])
             while path and path[-1][0] >= level:
                 path.pop()
-            path.append((level, clean(m[2])))
+            path.append((level, clean(m[2].rstrip().rstrip("#"))))
             add("heading", start, end_of(i))
             i += 1
         elif m := FENCE.match(line):

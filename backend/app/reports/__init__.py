@@ -44,12 +44,17 @@ def render(report: AnalysisReport, fmt: str) -> str:
     raise ValueError(fmt)
 
 
+def no_links(text: str) -> str:
+    """Ссылки и картинки из документа не должны загружаться при просмотре отчёта."""
+    return text.replace("](", "]\\(")
+
+
 def esc(text: str) -> str:
-    return html.escape(" ".join(str(text).split()), quote=False).replace("|", "\\|")
+    return no_links(html.escape(" ".join(str(text).split()), quote=False)).replace("|", "\\|")
 
 
 def quote(text: str) -> str:
-    return "\n".join("> " + html.escape(line, quote=False) for line in text.splitlines())
+    return "\n".join("> " + no_links(html.escape(line, quote=False)) for line in text.splitlines())
 
 
 def to_markdown(r: AnalysisReport) -> str:

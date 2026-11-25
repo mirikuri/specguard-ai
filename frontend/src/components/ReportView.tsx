@@ -17,7 +17,7 @@ export function ReportView({ id, report: r }: { id: string; report: Report }) {
     if (x) { setRequirement(x); setTab('requirements') }
   }
   const active = useMemo<Span[]>(() => tab === 'requirements'
-    ? requirement ? [{ start: requirement.source_start, end: requirement.source_end }] : []
+    ? requirement ? requirement.spans.map(([start, end]) => ({ start, end })) : []
     : finding?.evidence ?? [], [tab, finding, requirement])
 
   return (

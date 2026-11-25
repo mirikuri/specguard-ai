@@ -5,12 +5,12 @@ from itertools import groupby
 from ..models import Document, Finding, Segment
 from .evidence import EvidenceLocator
 
-WRITE = re.compile(r"\b(сохран(ение|ить|яет)|измен(ение|ить|яет)|удал(ение|ить|яет)|созда(ние|ть|ет|ёт)|обновл\w+|замен(а|ить|яет))\b", re.I)
+WRITE = re.compile(r"\b(сохран(ение|ить|яет)|измен(ение|ить|яет)|удал(ение|ить|яет)|созда(ние|ть|ет|ёт)|обнов(ление|ить|ляет)|замен(а|ить|яет))\b", re.I)
 READ = re.compile(r"\b(чтени[ея]|получени[ея]|прочитать|просмотр)\b", re.I)
 WRITE_URL = re.compile(r"/(save|update|delete|create|remove|set)(?=[A-Z_\-/`'\"\s?]|$)")
 GET_LINE = re.compile(r"\bGET\s+`?\S*/(save|update|delete|create|remove|set)(?=[A-Z_\-/`'\"\s?]|$)")
 STATUS_START = re.compile(r"^[#*\s|`]*([1-5]\d\d)\b")
-PLACEHOLDER = re.compile(r"\b(TBD|TODO|заполняются|будет заполнено|заполнить позже|уточняется)\b", re.I)
+PLACEHOLDER = re.compile(r"\b(TBD|TODO|будет заполнено|заполня(ю|е)тся (позже|далее|\w+ами)|заполнить позже)\b|^\W*уточняется\W*$", re.I)
 TYPES = {"integer": "integer", "int": "integer", "number": "number", "string": "string", "str": "string",
          "boolean": "boolean", "bool": "boolean", "целое": "integer", "строка": "string"}
 
@@ -41,7 +41,8 @@ def run_rules(doc: Document, locator: EvidenceLocator) -> list[Finding]:
         desc = next((r for k, r in fields.items() if k in ("description", "описание")), None)
         urls = [r for k, r in fields.items() if "url" in k and WRITE_URL.search(r.text)]
         writes = [r for r in (desc,) if r and WRITE.search(r.cells[1])] + urls
-        if is_get and writes:
+        reads_only = desc is not None and READ.search(desc.cells[1]) and not WRITE.search(desc.cells[1])
+        if is_get and writes and not reads_only:
             add("get-mutates", "Метод GET используется для изменения данных", "api_design", "correct", "high",
                 [method, *writes],
                 f"Метод объявлен как GET, но {'описание' if desc in writes else 'адрес'} говорит об изменении данных. "
@@ -92,11 +93,14 @@ def run_rules(doc: Document, locator: EvidenceLocator) -> list[Finding]:
         other = next((u for u in uses[1:] if u[1] != uses[0][1]), None)
         if other:
             first = uses[0]
+            # в одном методе запрос и ответ обязаны совпадать; в разных методах поле может значить разное
+            same_method = any(re.search(r"запрос|ответ|параметр|request|response|query|body", last_heading(u[0]), re.I) for u in (first, other))
             add("type-mismatch", f"Поле {name} имеет разные типы: {first[1]} и {other[1]}", "data_quality", "consistent", "medium",
                 [first[0], other[0]],
                 f"В разделе «{last_heading(first[0])}» тип поля {name} — {first[1]}, в разделе «{last_heading(other[0])}» — {other[1]}.",
                 "Клиент и сервер по-разному разберут значение; возможны ошибки преобразования.",
-                "Задать один тип поля во всём контракте или явно описать преобразование.")
+                "Задать один тип поля во всём контракте или явно описать преобразование.",
+                status="confirmed" if same_method else "needs_review")
 
     for a in segs:
         if re.search(r"content-type", a.text, re.I) and "json" in a.text.lower():
@@ -113,15 +117,15 @@ def run_rules(doc: Document, locator: EvidenceLocator) -> list[Finding]:
         for sentence in re.split(r"(?<=[.;])\s", s.text):
             if not re.search(r"(?<!не)успеш", sentence, re.I):
                 continue
-            missing = [c for c in re.findall(r"(?<!\d)[23]\d\d(?!\d)", sentence) if c not in documented]
-            if missing and not STATUS_START.match(s.text):
+            missing = [c for c in re.findall(r"(?<!\d)[23]\d\d(?!\s?[\d₸%])", sentence) if c not in documented]
+            if missing and re.search(r"\b(код|статус|результат|ответ|http)", sentence, re.I) and not STATUS_START.match(s.text):
                 add("undocumented-status", f"Код {', '.join(missing)} назван успешным, но не описан", "incompleteness", "complete",
                     "medium", [s], f"Код {', '.join(missing)} упомянут как успешный результат, но отдельного описания и примера ответа нет.",
                     "Неясно, когда возвращается этот код и какое у него тело.", "Описать условие и тело ответа либо убрать код.", is_gap=True)
 
     for s in segs:
         head = STATUS_START.match(last_heading(s))
-        if s.kind == "code" and head and head[1][0] == "2" and re.search(r"\"?(ERROR|FAIL(ED)?)\"?", s.text):
+        if s.kind == "code" and head and head[1][0] == "2" and re.search(r"\b(ERROR|FAIL(ED)?)\b", s.text):
             h = [x for x in segs if x.kind == "heading" and x.section == s.section][-1:]
             add("error-in-success", f"Ответ с ошибкой возвращается с кодом {head[1]}", "api_design", "consistent", "high", [*h, s],
                 f"В примере для кода {head[1]} показан ответ с результатом ERROR.",

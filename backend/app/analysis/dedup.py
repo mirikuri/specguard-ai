@@ -25,15 +25,20 @@ def similar(a: Finding, b: Finding) -> bool:
 
 
 def merge(main: Finding, extra: Finding) -> None:
-    """Дополняет main доказательствами и критериями второго замечания."""
+    """Дополняет main доказательствами и критериями второго замечания.
+
+    Непроверенное замечание не меняет подтверждённое: ни доказательства, ни серьёзность.
+    """
+    if main.source != extra.source:
+        main.source = "rule+llm"
+    if main.status == "confirmed" and extra.status != "confirmed":
+        return
     seen = {(e.start, e.end) for e in main.evidence}
     main.evidence += [e for e in extra.evidence if (e.start, e.end) not in seen]
     main.requirement_ids = list(dict.fromkeys(main.requirement_ids + extra.requirement_ids))
     main.criteria = list(dict.fromkeys(main.criteria + extra.criteria))
     if SEVERITY_ORDER[extra.severity] < SEVERITY_ORDER[main.severity]:
         main.severity = extra.severity
-    if main.source != extra.source:
-        main.source = "rule+llm"
     main.confidence = max(main.confidence, extra.confidence)
 
 

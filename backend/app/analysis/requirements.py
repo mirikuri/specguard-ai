@@ -16,7 +16,7 @@ def build_requirements(doc: Document, extracted: list[ExtractedRequirement]) -> 
     return [Requirement(
         id=f"REQ-{n:03}", source_id=next((s.source_id for s in segs if s.source_id), None), summary=e.summary,
         text="\n".join(s.text for s in segs), section=segs[0].section, source_start=segs[0].start,
-        source_end=segs[-1].end, page=segs[0].page, requirement_type=e.requirement_type,
+        source_end=segs[-1].end, spans=[(s.start, s.end) for s in segs], page=segs[0].page, requirement_type=e.requirement_type,
         type_confidence=min(max(e.type_confidence, 0), 1), segment_ids=[s.id for s in segs],
     ) for n, (segs, e) in enumerate(items, 1)]
 

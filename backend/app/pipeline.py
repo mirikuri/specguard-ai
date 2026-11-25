@@ -63,7 +63,7 @@ class Analysis:
                 size = 0
             chunks[-1].append(s)
             size += len(s.text)
-        if len(chunks) > MAX_CHUNKS:
+        if len(chunks) > MAX_CHUNKS or any(sum(len(s.text) for s in c) > CHUNK_CHARS * 2 for c in chunks):
             raise DocumentError(f"Документ слишком большой для анализа: больше {CHUNK_CHARS * MAX_CHUNKS // 1000} тысяч знаков.", 413)
         return chunks
 
@@ -107,6 +107,9 @@ class Analysis:
             except LLMError as e:
                 status, message = "failed", str(e)
                 log.warning("Этап %s не выполнен: %s", sid, e)
+            except Exception:  # сбой одного этапа не должен терять остальные результаты
+                status, message = "failed", "Внутренняя ошибка этапа, подробности в журнале."
+                log.exception("Сбой этапа %s", sid)
         self.stages.append(StageResult(id=sid, title=TITLES[sid], status=status, message=message,
                                        seconds=round(time.monotonic() - started, 1),
                                        models=list(dict.fromkeys(models))))
@@ -243,7 +246,9 @@ class Analysis:
                 if c.criterion not in best or rank[c.status] < rank[best[c.criterion].status]:
                     best[c.criterion] = CriterionCheck(criterion=c.criterion, status=c.status, explanation=c.explanation)
             self.accept(res.findings, "consistency_analysis")
-            self.accept_traces(res.traces)
+        for res in results:  # после всех замечаний, чтобы не повторить уже найденное
+            if isinstance(res, SetOut):
+                self.accept_traces(res.traces)
         self.set_checks = [best.get(c, CriterionCheck(criterion=c, status="not_evaluated")) for c in SET]
         if len(self.chunks) > 1:
             errors.append("Большой документ проверен частями: связи между частями не сопоставлены.")
@@ -406,6 +411,17 @@ class Analysis:
                         c.explanation = f"{c.explanation} (без подтверждённого замечания)".strip()
         if not self.set_checks:
             self.set_checks = [CriterionCheck(criterion=c, status="not_evaluated", explanation="Этап не выполнен.") for c in SET]
+        match = {"consistent": ({"inconsistency"}, "consistent"), "complete": ({"incompleteness"}, "complete"),
+                 "validatable": ({"untestable"}, "validatable"), "feasible": (set(), None), "comprehensible": (set(), "comprehensible")}
+        for c in self.set_checks:
+            kinds, criterion = match[c.criterion]
+            own = [f for f in self.findings if f.status == "confirmed" and f.severity not in ("low", "info")
+                   and (f.category in kinds or criterion in f.criteria)]
+            if own:
+                c.status, c.explanation = "fail", f"{c.explanation} Подтверждено: {', '.join(f.id for f in own)}.".strip()
+            elif c.status == "fail":
+                c.status = "needs_review"
+                c.explanation += " (без подтверждённого замечания)"
 
     def finish(self, started: datetime, t0: float) -> AnalysisReport:
         key = lambda f: (f.status != "confirmed", SEVERITY_ORDER[f.severity], f.evidence[0].start if f.evidence else 0)

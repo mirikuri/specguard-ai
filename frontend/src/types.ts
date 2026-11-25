@@ -14,7 +14,7 @@ export interface Finding {
 }
 export interface Requirement {
   id: string; source_id: string | null; summary: string; text: string; section: string
-  source_start: number; source_end: number; requirement_type: string; type_confidence: number; checks: Check[]
+  source_start: number; source_end: number; spans: [number, number][]; requirement_type: string; type_confidence: number; checks: Check[]
 }
 export interface Stage { id: string; title: string; status: 'completed' | 'partial' | 'failed' | 'skipped'; message: string; seconds: number; models: string[] }
 export interface Report {

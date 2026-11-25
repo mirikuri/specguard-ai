@@ -35,6 +35,7 @@ def main(argv=None) -> int:
         err("отчёт не может перезаписать исходный документ")
         return 1
     try:
+        a.output.parent.mkdir(parents=True, exist_ok=True)
         doc = parse_document(a.input.name, a.input.read_bytes(), settings.max_bytes)
         llm = None if a.rules_only else make_llm(settings, ResponseCache(CACHE_DIR) if a.cache else None)
         if llm is None and not a.rules_only:
@@ -42,7 +43,6 @@ def main(argv=None) -> int:
             return 1
         report = asyncio.run(analyze(doc, llm, timeout=settings.analysis_timeout,
                                      on_progress=lambda s, n, m: print(f"[{n:3}%] {m}", flush=True)))
-        a.output.parent.mkdir(parents=True, exist_ok=True)
         for fmt, path in outputs.items():
             path.write_text(render(report, fmt), encoding="utf-8")
     except SpecGuardError as e:

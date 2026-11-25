@@ -41,19 +41,22 @@ class GeminiClient:
 
     async def generate[T: BaseModel](self, prompt: str, schema: type[T], deadline: float | None = None) -> T:
         loop = asyncio.get_running_loop()
-        reason, quota = "", False
+        reason = ""
         for attempt in range(self.max_retries + 1):
             await self._throttle()
             left = self.timeout if deadline is None else min(self.timeout, deadline - loop.time())
             if left <= 0:
                 raise LLMError("Истекло общее время анализа.")
-            delay, quota = self.backoff * 2 ** attempt, False
+            delay = self.backoff * 2 ** attempt
             try:
-                async with self._slots, asyncio.timeout(left):
-                    response = await self._get_models().generate_content(
-                        model=self.model, contents=prompt,
-                        config={"system_instruction": load_prompt("system"), "temperature": 0,
-                                "response_mime_type": "application/json", "response_schema": schema})
+                async with self._slots:
+                    if deadline is not None:  # ожидание очереди тоже расходует общее время
+                        left = max(min(self.timeout, deadline - loop.time()), 0)
+                    async with asyncio.timeout(left):
+                        response = await self._get_models().generate_content(
+                            model=self.model, contents=prompt,
+                            config={"system_instruction": load_prompt("system"), "temperature": 0,
+                                    "response_mime_type": "application/json", "response_schema": schema})
                 if response.text:
                     return schema.model_validate_json(response.text)
                 reason = "модель вернула пустой ответ"
@@ -66,7 +69,6 @@ class GeminiClient:
                 if code == 429 and re.search(r"per_?day", str(e), re.I):
                     raise LLMError("Исчерпан суточный лимит запросов Gemini (429).", True, True) from None
                 if code == 429:
-                    quota = True
                     reason = "исчерпан лимит запросов Gemini (429)"
                     if m := re.search(r"retry(?:Delay\W+| in )(\d+(?:\.\d+)?)\s*s", str(e)):
                         delay = min(max(delay, float(m[1])), 65)
@@ -84,7 +86,7 @@ class GeminiClient:
                 if deadline is not None and loop.time() + delay >= deadline:
                     raise LLMError(f"Истекло общее время анализа; последняя причина: {reason}.")
                 await asyncio.sleep(delay)
-        raise LLMError(f"Не получен ответ модели: {reason}.", can_switch=True, exhausted=quota)
+        raise LLMError(f"Не получен ответ модели: {reason}.", can_switch=True)
 
 
 def make_llm(settings, cache=None) -> ModelRouter | None:

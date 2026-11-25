@@ -18,7 +18,10 @@ def pdf_to_markdown(data: bytes) -> tuple[str, list[int]]:
             prose = [round(c["size"], 1) for p in pdf.pages for c in p.filter(_outside(_tables(p))).chars if c["text"].strip()]
             body = statistics.mode(prose or sizes or [0])
             levels = sorted({s for s in prose if s >= body * 1.12}, reverse=True)
-            pages = [_page(p, body, levels) for p in pdf.pages]
+            pages, previous = [], None
+            for p in pdf.pages:
+                text, previous = _page(p, body, levels, previous)
+                pages.append(text)
     except Exception:
         raise DocumentError("Не удалось прочитать PDF: файл повреждён или защищён паролем.") from None
     if not sizes:
@@ -43,7 +46,8 @@ def _outside(tables):
     return check
 
 
-def _page(page, body, levels) -> str:
+def _page(page, body, levels, previous=None):
+    """previous — шапка таблицы, которой закончилась прошлая страница."""
     tables = _tables(page)
     blocks = []
     prev_bottom = None
@@ -58,10 +62,18 @@ def _page(page, body, levels) -> str:
         gap = prev_bottom is not None and line["top"] - prev_bottom > size * 0.9
         blocks.append((line["top"], ("\n" if gap else "") + text))
         prev_bottom = line["bottom"]
-    for t in tables:
+    tops = [top for top, _ in blocks]
+    last_header = None
+    for n, t in enumerate(tables):
         rows = [[_cell(c) for c in r] for r in t.extract()]
         head, *rest = rows
+        # продолжение таблицы с прошлой страницы: первая строка — данные, а не шапка (допускаем один колонтитул)
+        if n == 0 and previous and len(previous) == len(head) and sum(top < t.bbox[1] for top in tops) <= 1:
+            rest = rest if head == previous else rows
+            head = previous
+        if n == len(tables) - 1 and sum(top > t.bbox[3] for top in tops) <= 1:
+            last_header = head
         md = "\n".join(["", "| " + " | ".join(head) + " |", "|" + " --- |" * len(head)]
                        + ["| " + " | ".join(r) + " |" for r in rest]) + "\n"
         blocks.append((t.bbox[1], md))
-    return "\n".join(b for _, b in sorted(blocks, key=lambda b: b[0]))
+    return "\n".join(b for _, b in sorted(blocks, key=lambda b: b[0])), last_header

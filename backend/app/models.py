@@ -50,6 +50,7 @@ class Requirement(BaseModel):
     section: str
     source_start: int
     source_end: int
+    spans: list[tuple[int, int]] = []
     page: int | None = None
     requirement_type: RequirementType
     type_confidence: float
