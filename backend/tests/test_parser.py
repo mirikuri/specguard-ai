@@ -124,3 +124,62 @@ def test_pdf_small_table_font_does_not_turn_body_into_headings():
 def test_hard_line_break_separates_statements():
     d = parse_document("a.md", "# A\n\n**200.** Успех.  \n**400.** Ошибка.\n".encode())
     assert [s.text for s in d.segments[1:]] == ["**200.** Успех.", "**400.** Ошибка."]
+
+
+def two_pages(first, second, footer=False):
+    from fpdf import FPDF
+    pdf = FPDF()
+    pdf.set_auto_page_break(False)
+    for n, lines in enumerate((first, second), 1):
+        pdf.add_page()
+        pdf.set_font("Helvetica", size=11)
+        for line in lines:
+            pdf.cell(0, 6, line, new_x="LMARGIN", new_y="NEXT")
+        if footer:
+            pdf.set_y(-25)
+            pdf.cell(0, 6, str(n), new_x="LMARGIN", new_y="NEXT")
+    return parse_document("a.pdf", bytes(pdf.output()))
+
+
+@pytest.mark.parametrize("footer", [False, True])
+def test_pdf_sentence_split_by_page_break_is_joined(footer):
+    d = two_pages(["F-1. When spending reaches the limit the client"], ["receives a push.", "F-2. Next rule."], footer)
+    f1 = next(s for s in d.segments if s.source_id == "F-1")
+    assert f1.text.split() == "F-1. When spending reaches the limit the client receives a push.".split()
+    assert f1.page == 1 and next(s for s in d.segments if s.source_id == "F-2").page == 2
+    assert all(d.text[s.start:s.end] == s.text for s in d.segments)
+
+
+@pytest.mark.parametrize("first,second", [
+    ("F-1. Finished sentence.", "lowercase start of another statement"),
+    ("F-1. No full stop", "Second paragraph starts here"),
+    ("F-1. No full stop", "F-2. Second rule"),
+    ("F-1. No full stop", "- bullet item"),
+])
+def test_pdf_separate_statements_are_not_joined(first, second):
+    d = two_pages([first], [second])
+    assert next(s for s in d.segments if s.source_id == "F-1").text == first
+
+
+def test_pdf_table_row_split_by_page_break_is_joined():
+    from app.parser.pdf import join_pages
+    text, starts = join_pages([
+        "| A | B |\n| --- | --- |\n| curl | first |\n",
+        "\n| A | B |\n| --- | --- |\n|  | second |\n| next | x |\n"], [False, True])
+    assert "| curl | first second |" in text and "|  | second |" not in text
+    assert text.count("| next | x |") == 1 and len(starts) == 2
+
+
+TABLE = "| A | B |\n| --- | --- |\n"
+
+
+@pytest.mark.parametrize("pages,continued,kept", [
+    (["Порог\n\n1"], [False], "\n1"),
+    (["Текст", "Максимум попыток\n\n2", "Конец"], [False] * 3, "\n2"),
+    (["Ф-1. Клиент\n\nКонфиденциально", "получает push\n\nКонфиденциально"], [False] * 2, "Конфиденциально\n\nполучает"),
+    (["specguard v1\n\nФ-1. Клиент", "specguard v1\n\nполучает push"], [False] * 2, "Клиент\n\nspecguard"),
+    ([TABLE + "| Поле | Первое |\n", "\n" + TABLE + "|  | Второе |\n"], [False, True], "|  | Второе |"),
+])
+def test_pdf_join_keeps_unrelated_content(pages, continued, kept):
+    from app.parser.pdf import join_pages
+    assert kept in join_pages(pages, continued)[0]

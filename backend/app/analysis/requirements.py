@@ -1,5 +1,5 @@
 from ..llm.schemas import ExtractedRequirement
-from ..models import Document, Requirement
+from ..models import Document, Requirement, Segment
 
 
 def build_requirements(doc: Document, extracted: list[ExtractedRequirement]) -> list[Requirement]:
@@ -11,7 +11,17 @@ def build_requirements(doc: Document, extracted: list[ExtractedRequirement]) -> 
         ids = [i for i in dict.fromkeys(e.segment_ids) if i in by_id and i not in used]
         if ids:
             used.update(ids)
-            items.append((sorted((by_id[i] for i in ids), key=lambda s: s.start), e))
+            segs = sorted((by_id[i] for i in ids), key=lambda s: s.start)
+            if len({s.source_id for s in segs if s.source_id}) < 2:
+                items.append((segs, e))
+                continue
+            # у фрагментов свои номера в документе: это разные требования, даже если модель их объединила
+            parts: list[list[Segment]] = []
+            for s in segs:
+                if not parts or s.source_id and any(x.source_id for x in parts[-1]):
+                    parts.append([])
+                parts[-1].append(s)
+            items += [(p, e.model_copy(update={"summary": " ".join(p[0].text.split())[:110]})) for p in parts]
     items.sort(key=lambda x: x[0][0].start)
     return [Requirement(
         id=f"REQ-{n:03}", source_id=next((s.source_id for s in segs if s.source_id), None), summary=e.summary,

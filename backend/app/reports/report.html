@@ -20,6 +20,9 @@ article{border-top:1px solid var(--line);break-inside:avoid}h2+article{border-to
 <tr><th>Статус</th><td>{{ L.REPORT_STATUS[r.status] }}</td></tr></table>
 <table><tr><th>Этап</th><th>Статус</th><th>Модель</th><th>Комментарий</th></tr>
 {% for s in r.stages %}<tr><td>{{ s.title }}</td><td>{{ L.STAGE_STATUS[s.status] }}</td><td>{{ s.models|join(', ') or 'без модели' }}</td><td>{{ s.message }}</td></tr>{% endfor %}</table>
+{% if r.questions %}<h2>Вопросы аналитику</h2>
+<div class="wrap"><table><tr><th>№</th><th>Серьёзность</th><th>Вопрос</th><th>Требования</th><th>Замечание</th></tr>
+{% for q in r.questions %}<tr><td>{{ q.id }}</td><td class="{{ q.severity }}">{{ L.SEVERITY[q.severity] }}</td><td>{{ q.text }}</td><td>{{ q.requirement_ids|join(', ') or 'вне требований' }}</td><td>{{ q.finding_ids|join(', ') }}</td></tr>{% endfor %}</table></div>{% endif %}
 <h2>Как агент нарезал требования</h2>
 <div class="wrap"><table><tr><th>ID в отчёте</th><th>ID в документе</th><th>Краткая формулировка</th><th>Тип</th></tr>
 {% for x in r.requirements %}<tr><td>{{ x.id }}</td><td>{{ x.source_id or 'нет, присвоен агентом' }}</td><td>{{ x.summary }}</td><td>{{ L.TYPE[x.requirement_type] }}</td></tr>{% endfor %}</table></div>
@@ -39,9 +42,9 @@ article{border-top:1px solid var(--line);break-inside:avoid}h2+article{border-to
 {% if f.fix.clarification_required %}<p><b>Вопрос аналитику.</b> {{ f.fix.clarification_question }}</p>{% endif %}{% endif %}</article>{% else %}<p>Замечаний нет.</p>{% endfor %}
 <h2>Сводка</h2>
 <table><tr><td>Требований</td><td>{{ r.summary.requirements_count }}</td></tr><tr><td>Требований с нарушениями</td><td>{{ r.summary.requirements_with_violations }}</td></tr>
-<tr><td>Подтверждённых нарушений</td><td>{{ r.summary.confirmed_count }}</td></tr><tr><td>Вопросов на уточнение</td><td>{{ r.summary.needs_review_count }}</td></tr>
+<tr><td>Подтверждённых нарушений</td><td>{{ r.summary.confirmed_count }}</td></tr><tr><td>Замечаний, требующих решения</td><td>{{ r.summary.needs_review_count }}</td></tr><tr><td>Вопросов аналитику</td><td>{{ r.questions|length }}</td></tr>
 <tr><td>Readiness Score</td><td>{% if r.readiness.score is none %}не рассчитан{% else %}{{ r.readiness.score }} из 100 ({{ L.READINESS[r.readiness.status] }}){% endif %}, покрытие {{ r.readiness.coverage }}%</td></tr>
-{% for title, items in critical.items() %}<tr><td>{{ title }}</td><td>{% for f in items %}{{ f.id }} {{ f.title }}{% if not loop.last %}; {% endif %}{% else %}не обнаружены{% endfor %}</td></tr>{% endfor %}</table>
+{% for title, items in critical.items() %}<tr><td>{{ title }}</td><td>{% for f in items %}{{ f.id }} {{ f.title }}{% if f.status == 'needs_review' %} (требует решения){% endif %}{% if not loop.last %}; {% endif %}{% else %}не обнаружены{% endfor %}</td></tr>{% endfor %}</table>
 <h2>Итог</h2><p>{{ r.verdict.text }}</p>
 {% if r.verdict.priorities %}<ol>{% for p in r.verdict.priorities %}<li>{{ p }}</li>{% endfor %}</ol>{% endif %}
 </main></body></html>

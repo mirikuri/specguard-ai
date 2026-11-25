@@ -23,6 +23,7 @@ export interface Report {
   stages: Stage[]; requirements: Requirement[]; set_checks: Check[]; findings: Finding[]; rejected_findings: Finding[]
   readiness: { score: number | null; status: string; coverage: number; dimensions: { id: string; title: string; weight: number; score: number | null }[] }
   summary: Record<string, number>
+  questions?: { id: string; finding_ids: string[]; severity: Severity; requirement_ids: string[]; text: string }[]
   verdict: { development: string; testing: string; text: string; priorities: string[] }
 }
 export interface AnalysisInfo {

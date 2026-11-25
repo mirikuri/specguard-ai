@@ -147,7 +147,7 @@ def test_failed_acceptance_trace_without_finding_becomes_question(doc):
 
 def test_atomicity_of_agent_grouping_is_not_a_defect(doc):
     from app.llm.schemas import ExtractionOut
-    segs = [s.id for s in doc.segments if s.source_id in ("Ф-1", "Ф-2")]
+    segs = [next(s.id for s in doc.segments if s.source_id == "Ф-2"), next(s.id for s in doc.segments if "тиынах" in s.text)]
     llm = FakeLLM([raw(category="non_atomic", criterion="singular")])
     llm.ExtractionOut = lambda p: ExtractionOut(requirements=[
         dict(segment_ids=[s.id], summary="x", requirement_type="api", type_confidence=1) for s in doc.segments if s.kind == "code"] + [
@@ -201,3 +201,69 @@ def test_weak_rejection_of_severe_confident_finding_goes_to_human(doc):
                                                 dict(requirement_id="REQ-002", quote="Система быстро отправляет push")])
     out = llm_findings(run(doc, FakeLLM([f], verdict="rejected")))
     assert out[0].status == "needs_review" and "оспор" in out[0].validation_note
+
+
+def rule_conflict(**kw):
+    return raw(title="Правила расходятся", category="inconsistency", criterion="consistent", evidence=[
+        dict(requirement_id="REQ-001", quote="Клиент задаёт порог"),
+        dict(requirement_id="REQ-002", quote="Система быстро отправляет push")], **kw)
+
+
+def test_conflict_of_two_rules_is_high_even_if_validator_says_medium(doc):
+    r = run(doc, FakeLLM([rule_conflict()]))
+    f = llm_findings(r)[0]
+    assert f.severity == "high" and "Серьёзность" in f.validation_note
+    assert r.readiness.status == "not_ready" and r.verdict.development == "нельзя"
+    assert f.id in r.verdict.text
+
+
+def test_unsure_or_single_source_conflict_keeps_severity(doc):
+    assert llm_findings(run(doc, FakeLLM([rule_conflict(conf=.5)])))[0].severity == "medium"
+    assert llm_findings(run(doc, FakeLLM([raw(category="inconsistency")])))[0].severity == "medium"
+
+
+def test_open_conflict_reaches_priorities_and_questions(doc):
+    r = run(doc, FakeLLM([rule_conflict()], verdict="needs_review"))
+    f = llm_findings(r)[0]
+    assert f.status == "needs_review"
+    assert any(p.startswith(f.id + " ") and "Требует решения" in p for p in r.verdict.priorities)
+    q = r.questions[0]
+    assert q.finding_ids == [f.id] and q.severity == "high" and q.requirement_ids == ["REQ-001", "REQ-002"]
+
+
+def test_analyst_question_text_comes_from_fix_and_is_not_repeated(doc):
+    from app.llm.schemas import FixesOut
+    llm = FakeLLM(two_findings())
+    base = llm.FixesOut
+    llm.FixesOut = lambda p: FixesOut(fixes=[x.model_copy(update={"clarification_required": True, "clarification_question": "Какой срок?"})
+                                             for x in base(p).fixes])
+    r = run(doc, llm)
+    assert [q.text for q in r.questions] == ["Какой срок?"]
+    assert [q.id for q in r.questions] == ["Q-01"]
+    assert set(r.questions[0].finding_ids) >= {f.id for f in llm_findings(r)}
+
+
+def test_safe_fix_of_confirmed_finding_asks_nothing(doc):
+    r = run(doc, FakeLLM())
+    assert not {q.finding_id for q in r.questions} & {f.id for f in r.findings if f.status == "confirmed"}
+
+
+@pytest.mark.parametrize("over", [dict(severity="low"), dict(answered_elsewhere=True)])
+def test_trivial_or_answered_conflict_is_not_raised(doc, over):
+    llm = FakeLLM([rule_conflict()])
+    base = llm.ValidationOut
+    llm.ValidationOut = lambda p: base(p).model_copy(update={"verdicts": [v.model_copy(update=over) for v in base(p).verdicts]})
+    assert llm_findings(run(doc, llm))[0].severity == over.get("severity", "medium")
+
+
+def test_unvalidated_conflict_is_not_raised(doc):
+    assert llm_findings(run(doc, FakeLLM([rule_conflict()], fail=["ValidationOut"])))[0].severity == "medium"
+
+
+def test_fragments_with_own_numbers_are_separate_requirements(doc):
+    from app.llm.schemas import ExtractionOut
+    segs = [s.id for s in doc.segments if s.source_id in ("Ф-1", "Ф-2")]
+    llm = FakeLLM([])
+    llm.ExtractionOut = lambda p: ExtractionOut(requirements=[dict(segment_ids=segs, summary="x", requirement_type="api", type_confidence=1)])
+    out = run(doc, llm).requirements
+    assert [x.source_id for x in out] == ["Ф-1", "Ф-2"] and out[0].summary != out[1].summary

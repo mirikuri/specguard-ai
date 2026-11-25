@@ -48,7 +48,8 @@ def main(argv=None) -> int:
         err(e)
         return 1
     except OSError as e:
-        err(f"{e.strerror}: {e.filename}")
+        reason = {FileNotFoundError: "файл не найден", PermissionError: "нет доступа", IsADirectoryError: "это папка, а не файл"}
+        err(f"{reason.get(type(e), e.strerror)}: {e.filename}")
         return 1
     s = report.summary
     print(f"Требований: {s.requirements_count}. Подтверждено замечаний: {s.confirmed_count}. На уточнение: {s.needs_review_count}.")

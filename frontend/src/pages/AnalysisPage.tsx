@@ -40,13 +40,13 @@ export function AnalysisPage() {
         const next = await api.status(id)
         if (stop) return
         misses = 0
-        setInfo(next)
-        setError('')
         if (next.status === 'completed' || next.status === 'partial') {
-          const r = await api.report(id)
+          const r = await api.report(id) // до смены статуса: иначе у готовой проверки мелькает ход выполнения
           if (!stop) setReport(r)
           return
         }
+        setInfo(next)
+        setError('')
         if (next.status === 'failed') return
       } catch (e) {
         if (stop) return
@@ -73,6 +73,7 @@ export function AnalysisPage() {
         <Link className="btn primary" to="/">К проверкам</Link>
       </div></div>
     )
+  if (!info) return <div className="page"><div className="panel pad" role="status"><p className="dim">Загрузка…</p></div></div>
   const found = events.filter((e) => e.kind === 'finding')
   const log = events.filter((e) => e.kind !== 'finding')
   return (

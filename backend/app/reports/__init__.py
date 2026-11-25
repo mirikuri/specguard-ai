@@ -20,10 +20,10 @@ def line_of(report: AnalysisReport, pos: int) -> int:
 
 
 def critical_defects(report: AnalysisReport) -> dict[str, list]:
-    """Непроверяемые, противоречивые и неполные формулировки (п. 6 условий)."""
+    """Непроверяемые, противоречивые и неполные формулировки (п. 6 условий). Серьёзные открытые вопросы тоже здесь."""
     groups = {t: [] for t in CRITICAL_KINDS.values()}
     for f in report.findings:
-        if f.status != "confirmed" or f.severity in ("low", "info"):
+        if f.severity not in ("critical", "high", "medium") or f.status != "confirmed" and f.severity == "medium":
             continue
         kinds = {f.category} | {CRITERION_KIND.get(c) for c in f.criteria}
         for k, title in CRITICAL_KINDS.items():
@@ -78,6 +78,12 @@ def to_markdown(r: AnalysisReport) -> str:
         ("Критерии", "ISO/IEC/IEEE 29148:2018, п. 5.2.5 и 5.2.6; IEEE Std 830-1998, п. 4.3")])
     table(["Этап", "Статус", "Модель", "Комментарий"], [(s.title, L.STAGE_STATUS[s.status], ", ".join(s.models) or "без модели", s.message) for s in r.stages])
 
+    if r.questions:
+        w("## Вопросы аналитику\n")
+        w("Сначала самые серьёзные. Обоснование и цитаты — в указанном замечании.\n")
+        table(["№", "Серьёзность", "Вопрос", "Требования", "Замечание"], [
+            (q.id, L.SEVERITY[q.severity], q.text, ", ".join(q.requirement_ids) or "вне требований", ", ".join(q.finding_ids)) for q in r.questions])
+
     w("## 2. Как агент нарезал требования\n")
     table(["ID в отчёте", "ID в документе", "Краткая формулировка", "Тип (уверенность)"],
           [(x.id, x.source_id or "нет, присвоен агентом", x.summary, f"{L.TYPE[x.requirement_type]} ({x.type_confidence:.0%})")
@@ -123,7 +129,7 @@ def to_markdown(r: AnalysisReport) -> str:
     w("## 6. Сводка\n")
     table(["Показатель", "Значение"], [
         ("Требований", s.requirements_count), ("Требований с подтверждёнными нарушениями", s.requirements_with_violations),
-        ("Подтверждённых нарушений", s.confirmed_count), ("Вопросов на уточнение", s.needs_review_count),
+        ("Подтверждённых нарушений", s.confirmed_count), ("Замечаний, требующих решения", s.needs_review_count), ("Вопросов аналитику", len(r.questions)),
         ("Отклонено при валидации", s.rejected_count),
         ("Критичных / высоких / средних / низких", f"{s.critical_count} / {s.high_count} / {s.medium_count} / {s.low_count}"),
         ("Readiness Score", "не рассчитан" if r.readiness.score is None else f"{r.readiness.score} из 100 ({L.READINESS[r.readiness.status]})"),
@@ -132,7 +138,7 @@ def to_markdown(r: AnalysisReport) -> str:
     w("Веса и штрафы — собственная методика SpecGuard, не формула ISO.\n")
     w("Критичные дефекты формулировок:\n")
     for title, items in critical_defects(r).items():
-        w(f"* **{title}:** " + ("; ".join(f"{f.id} ({', '.join(f.requirement_ids) or 'вне требований'}) {esc(f.title)}" for f in items) or "не обнаружены"))
+        w(f"* **{title}:** " + ("; ".join(f"{f.id} ({', '.join(f.requirement_ids) or 'вне требований'}) {esc(f.title)}{' (требует решения)' if f.status == 'needs_review' else ''}" for f in items) or "не обнаружены"))
     w("")
     w("## 7. Итог\n")
     w(esc(r.verdict.text) + "\n")

@@ -40,3 +40,25 @@ def test_markdown_table_cells_escaped():
     row = next(l for l in md.splitlines() if l.startswith("| REQ-001"))
     assert row.count("|") - row.count("\\|") == 5
     assert "<img" not in md
+
+
+def conflict():
+    return raw(title="Правила расходятся", category="inconsistency", criterion="consistent", evidence=[
+        dict(requirement_id="REQ-001", quote="Клиент задаёт порог"),
+        dict(requirement_id="REQ-002", quote="Система быстро отправляет push")])
+
+
+def test_questions_go_before_requirements_and_critical_list_has_open_conflict(doc):
+    r = report(doc, findings=[conflict()], verdict="needs_review")
+    for fmt in ("md", "html"):
+        out = render(r, fmt)
+        assert out.index("Вопросы аналитику") < out.index("Как агент нарезал")
+        assert "Q-01" in out
+        assert "Правила расходятся (требует решения)" in out
+
+
+def test_old_saved_report_without_questions_still_loads(doc):
+    from app.models import AnalysisReport
+    data = json.loads(render(report(doc), "json"))
+    del data["questions"]
+    assert AnalysisReport.model_validate(data).questions == []

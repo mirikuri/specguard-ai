@@ -9,13 +9,13 @@ from .analysis.dedup import deduplicate, merge, overlaps
 from .analysis.evidence import EvidenceLocator
 from .analysis.requirements import build_requirements, fallback_requirements
 from .analysis.rules import run_rules
-from .analysis.scoring import readiness
+from .analysis.scoring import blocks, readiness
 from .config import agent_version
 from .errors import DocumentError, LLMError
 from .llm.router import EVENTS, STAGE_MODELS, tell
 from .llm.schemas import AtomicOut, ConflictsOut, DuplicatesOut, ExtractionOut, FintechOut, FixesOut, SetOut, ValidationOut
 from .models import (SEVERITY_ORDER, AnalysisOptions, AnalysisReport, CriterionCheck, Document, Finding, Fix,
-                     Requirement, Segment, StageResult, Summary, Verdict)
+                     Question, Requirement, Segment, StageResult, Summary, Verdict)
 from .prompts_loader import build_prompt, wrap_untrusted
 
 log = logging.getLogger("specguard")
@@ -35,6 +35,8 @@ PROGRESS = {i: p for i, _, p in STAGES}
 ATOMIC_BATCH, VALIDATION_BATCH, FIX_BATCH = 10, 40, 10
 CHUNK_CHARS, MAX_CHUNKS = 120_000, 5
 CONFIRM_THRESHOLD = 0.75
+RULE_TYPES = {"functional", "business_rule", "acceptance_criteria"}
+MAX_PRIORITIES, MAX_OPEN_PRIORITIES = 7, 3
 
 
 class Skip(Exception):
@@ -359,6 +361,7 @@ class Analysis:
             await self.merge_duplicates()
         except LLMError as e:
             errors.append(f"Поиск дублей не выполнен: {e}")
+        self.raise_rule_conflicts({i for i, v in verdicts.items() if not v.answered_elsewhere})
         n = sum(f.status == "confirmed" for f in self.findings)
         tell("done", f"Подтверждено замечаний: {n}, требуют решения: {len(self.findings) - n}, отклонено: {len(self.rejected)}")
         return "; ".join(errors)
@@ -448,6 +451,36 @@ class Analysis:
                 c.status = "needs_review"
                 c.explanation += " (без подтверждённого замечания)"
 
+    def raise_rule_conflicts(self, checked: set[str]):
+        """Противоречие двух правил поведения не бывает средним: реализация нарушит одно из них.
+
+        checked — замечания с вердиктом, ответа на которые в документе нет."""
+        types = {r.id: r.requirement_type for r in self.requirements}
+        for f in self.findings:
+            rules = {e.requirement_id for e in f.evidence if types.get(e.requirement_id) in RULE_TYPES}
+            if (f.category == "inconsistency" and not f.rule_id and not f.is_gap and len(rules) >= 2
+                    and f.confidence >= CONFIRM_THRESHOLD and f.severity == "medium" and f.id in checked):
+                f.severity = "high"
+                f.validation_note = f"{f.validation_note} Серьёзность поднята до высокой: расходятся два правила поведения.".strip()
+
+    def analyst_questions(self) -> list[Question]:
+        """Вопросы без повторов, сначала самые серьёзные."""
+        out: list[Question] = []
+        seen: dict[str, Question] = {}
+        for f in sorted(self.findings, key=lambda f: (SEVERITY_ORDER[f.severity], not blocks(f), f.id)):
+            text = f.fix.clarification_question.strip() if f.fix and f.fix.clarification_required else ""
+            if not text and (f.status == "needs_review" or f.fix and f.fix.clarification_required):
+                text = f"{f.title.rstrip('. ')}. {f.recommendation}"
+            key = " ".join(text.lower().split())
+            if q := seen.get(key):
+                q.finding_ids.append(f.id)
+                q.requirement_ids = list(dict.fromkeys(q.requirement_ids + f.requirement_ids))
+            elif key:
+                seen[key] = Question(id=f"Q-{len(out) + 1:02}", finding_ids=[f.id], severity=f.severity,
+                                     requirement_ids=list(f.requirement_ids), text=text)
+                out.append(seen[key])
+        return out
+
     def finish(self, started: datetime, t0: float) -> AnalysisReport:
         key = lambda f: (f.status != "confirmed", SEVERITY_ORDER[f.severity], f.evidence[0].start if f.evidence else 0)
         self.findings.sort(key=key)
@@ -488,7 +521,8 @@ class Analysis:
             requirements=self.requirements,
             unassigned_segments=[s for s in self.doc.segments if s.kind != "heading" and s.id not in used],
             set_checks=self.set_checks, findings=self.findings, rejected_findings=self.rejected,
-            readiness=ready, summary=summary, verdict=self.verdict(ready, status))
+            readiness=ready, summary=summary, verdict=self.verdict(ready, status),
+            questions=self.analyst_questions())
 
     def verdict(self, ready, status) -> Verdict:
         confirmed = [f for f in self.findings if f.status == "confirmed"]
@@ -500,6 +534,10 @@ class Analysis:
         if blocking and ready.status in ("ready", "ready_with_conditions"):
             test = "нельзя для затронутых требований: " + ", ".join(sorted({i for f in blocking for i in f.requirement_ids})[:12])
         text = f"Начинать разработку по документу: {dev}. Начинать тестирование: {test}."
+        if ready.status == "not_ready" and (stop := [f.id for f in confirmed if blocks(f)]):
+            text += f" Причина: противоречия и критичные дефекты {', '.join(stop)}."
+        if ready.status != "not_evaluated" and (still := [f.id for f in self.findings if f.status == "needs_review" and blocks(f)]):
+            text += f" До начала нужно решение аналитика: {', '.join(still)}."
         if ready.status == "not_evaluated":
             text = "Вывод о начале разработки и тестирования сделать нельзя: анализ выполнен не полностью."
         if status != "completed":
@@ -510,9 +548,14 @@ class Analysis:
                      " поэтому оценка может быть завышена. Повторите прогон при доступной основной модели.")
         if any("(кеш)" in m for m in self.used_models()):
             text += " Отладочный прогон: часть ответов модели взята из кеша."
-        top = [f for f in confirmed if f.severity in ("critical", "high")] or confirmed
+        severe = [f for f in self.findings if f.severity in ("critical", "high")]
+        still_open = [f for f in severe if f.status == "needs_review"][:MAX_OPEN_PRIORITIES]
+        sure = [f for f in severe if f.status == "confirmed"]
+        top = sure[:MAX_PRIORITIES - len(still_open)] + still_open + ([] if sure else confirmed)
+        top = top[:MAX_PRIORITIES]
+        prefix = lambda f: "Требует решения. " if f.status == "needs_review" else ""
         return Verdict(development=dev, testing=test, text=text,
-                       priorities=[f"{f.id} «{f.title}»: {f.recommendation}" for f in top[:7]])
+                       priorities=[f"{f.id} «{f.title}»: {prefix(f)}{f.recommendation}" for f in top])
 
     async def run(self) -> AnalysisReport:
         try:

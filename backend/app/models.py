@@ -135,6 +135,14 @@ class Summary(BaseModel):
     requirements_with_violations: int
 
 
+class Question(BaseModel):
+    id: str
+    finding_ids: list[str]
+    severity: Severity
+    requirement_ids: list[str]
+    text: str
+
+
 class Verdict(BaseModel):
     development: str
     testing: str
@@ -169,3 +177,4 @@ class AnalysisReport(BaseModel):
     readiness: Readiness
     summary: Summary
     verdict: Verdict
+    questions: list[Question] = []

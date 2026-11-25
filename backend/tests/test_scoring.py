@@ -54,3 +54,35 @@ def test_traceability_is_share_of_ids():
 
 def test_empty_requirements():
     assert readiness([], [], ALL, "completed").score is None
+
+
+def with_criteria(*criteria, **kw):
+    f = finding(**kw)
+    f.criteria = list(criteria)
+    return f
+
+
+def dim(r, key):
+    return next(d.score for d in r.dimensions if d.id == key)
+
+
+def test_criteria_lower_their_dimension_once():
+    r = readiness(REQS, [with_criteria("consistent", "validatable", "verifiable")], ALL, "completed")
+    assert (dim(r, "consistency"), dim(r, "testability"), dim(r, "completeness")) == (75, 75, 100)
+
+
+def test_confirmed_high_contradiction_blocks():
+    for f in (finding(), with_criteria("consistent", category="api_design"), finding(category="incorrect")):
+        assert readiness(REQS * 10, [f], ALL, "completed").status == "not_ready"
+    assert readiness(REQS * 10, [finding(category="incompleteness")], ALL, "completed").status == "ready"
+    assert readiness(REQS * 10, [finding("medium")], ALL, "completed").status == "ready"
+
+
+def test_open_high_contradiction_is_not_ready_without_conditions():
+    assert readiness(REQS, [finding(status="needs_review")], ALL, "completed").status == "ready_with_conditions"
+
+
+def test_gap_with_consistency_criterion_is_not_a_contradiction():
+    f = with_criteria("consistent", category="incompleteness")
+    f.is_gap = True
+    assert readiness(REQS * 10, [f], ALL, "completed").status == "ready"

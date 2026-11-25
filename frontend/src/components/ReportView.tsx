@@ -167,8 +167,11 @@ function Requirements({ r, open }: { r: Report; open: (f: Finding) => void }) {
 
 function Summary({ r, open }: { r: Report; open: (f: Finding) => void }) {
   const first = r.verdict.priorities.map((p) => r.findings.find((f) => p.startsWith(f.id + ' '))).filter((f) => f !== undefined)
+  const questions = r.questions ?? []
   return (
     <div className="summary">
+      {questions.length > 0 && <section className="panel span"><header className="panel-head"><h2>Вопросы аналитику</h2><CopyButton text={questions.map((q) => `${q.id} (${L.SEVERITY[q.severity]}, ${q.requirement_ids.join(', ') || 'вне требований'}): ${q.text}`).join('\n')} /></header>
+        <ol className="todo">{questions.map((q) => <li key={q.id}><span className={`tag ${q.severity}`}>{L.SEVERITY[q.severity]}</span><div><p>{q.text}</p>{r.findings.filter((f) => q.finding_ids.includes(f.id)).map((f) => <p key={f.id}><button className="link" onClick={() => open(f)}>{f.id} {f.title}</button></p>)}</div></li>)}</ol></section>}
       <section className="panel"><header className="panel-head"><h2>Исправить в первую очередь</h2></header>
         {first.length ? <ol className="todo">{first.map((f) => <li key={f.id}><span className={`tag ${f.severity}`}>{L.SEVERITY[f.severity]}</span><div><button className="link" onClick={() => open(f)}>{f.title}</button><p>{f.recommendation}</p></div></li>)}</ol> : <p className="pad dim">Подтверждённых замечаний нет.</p>}</section>
       <section className="panel"><header className="panel-head"><h2>Из чего складывается оценка</h2></header>
