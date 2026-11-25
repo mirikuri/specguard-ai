@@ -186,3 +186,8 @@ def test_requirement_spans_exclude_text_between_segments(doc):
 def test_markdown_report_has_no_active_links_from_document():
     d = md("# A\n\n* **Ф-1.** ![x](http://evil.example/p.png) и [y](http://evil.example).\n")
     assert "](http" not in render(run(d, FakeLLM([])), "md")
+
+
+def test_type_mismatch_inside_one_section_is_confirmed():
+    t = "# A\n\n| Parameter | Format |\n|---|---|\n| `x` | integer |\n\nОтвет:\n\n| Parameter | Format |\n|---|---|\n| `x` | string |\n"
+    assert rules(t)["type-mismatch"].status == "confirmed"

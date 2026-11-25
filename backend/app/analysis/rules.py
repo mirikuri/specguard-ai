@@ -94,7 +94,7 @@ def run_rules(doc: Document, locator: EvidenceLocator) -> list[Finding]:
         if other:
             first = uses[0]
             # в одном методе запрос и ответ обязаны совпадать; в разных методах поле может значить разное
-            same_method = any(re.search(r"запрос|ответ|параметр|request|response|query|body", last_heading(u[0]), re.I) for u in (first, other))
+            same_method = first[0].section == other[0].section or any(re.search(r"запрос|ответ|параметр|request|response|query|body", last_heading(u[0]), re.I) for u in (first, other))
             add("type-mismatch", f"Поле {name} имеет разные типы: {first[1]} и {other[1]}", "data_quality", "consistent", "medium",
                 [first[0], other[0]],
                 f"В разделе «{last_heading(first[0])}» тип поля {name} — {first[1]}, в разделе «{last_heading(other[0])}» — {other[1]}.",
