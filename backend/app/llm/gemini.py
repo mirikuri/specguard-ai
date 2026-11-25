@@ -87,7 +87,7 @@ class GeminiClient:
         raise LLMError(f"Не получен ответ модели: {reason}.", can_switch=True, exhausted=quota)
 
 
-def make_llm(settings) -> ModelRouter | None:
+def make_llm(settings, cache=None) -> ModelRouter | None:
     if not settings.gemini_api_key or settings.gemini_api_key == "your_gemini_api_key_here":
         return None
     main = settings.gemini_model
@@ -95,4 +95,4 @@ def make_llm(settings) -> ModelRouter | None:
     names = [main, validator, *settings.gemini_fallback_models.split(","), light]
     clients = {n: GeminiClient(settings.gemini_api_key, n, settings.llm_timeout, settings.max_retries, settings.llm_min_interval)
                for n in dict.fromkeys(x.strip() for x in names) if n}
-    return ModelRouter(clients, main, light, validator)
+    return ModelRouter(clients, main, light, validator, cache)

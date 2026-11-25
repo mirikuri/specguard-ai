@@ -265,6 +265,10 @@ class Analysis:
         return "; ".join(errors)
 
     async def validate(self):
+        # параллельные этапы завершаются в разном порядке: фиксируем порядок и ID замечаний
+        self.findings.sort(key=lambda f: (f.rule_id is None, f.stage, f.evidence[0].start, f.title))
+        for n, f in enumerate((f for f in self.findings if not f.rule_id), 1):
+            f.id = f"L-{n:03}"
         self.findings = deduplicate(self.findings)
         todo = [f for f in self.findings if not f.rule_id]
         if not todo:
@@ -463,6 +467,8 @@ class Analysis:
         if weak := getattr(self.llm, "degraded", []):
             text += (f" Часть поиска выполнили запасные модели ({', '.join(weak)}): они пропускают больше дефектов,"
                      " поэтому оценка может быть завышена. Повторите прогон при доступной основной модели.")
+        if any("(кеш)" in m for m in self.used_models()):
+            text += " Отладочный прогон: часть ответов модели взята из кеша."
         top = [f for f in confirmed if f.severity in ("critical", "high")] or confirmed
         return Verdict(development=dev, testing=test, text=text,
                        priorities=[f"{f.id} «{f.title}»: {f.recommendation}" for f in top[:7]])

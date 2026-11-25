@@ -5,7 +5,7 @@ from fake_llm import FakeLLM
 
 
 def test_cli_writes_reports(tmp_path, sample_text, monkeypatch):
-    monkeypatch.setattr(cli, "make_llm", lambda s: FakeLLM())
+    monkeypatch.setattr(cli, "make_llm", lambda s, cache=None: FakeLLM())
     src, out = tmp_path / "r.md", tmp_path / "o" / "report.md"
     src.write_text(sample_text)
     assert cli.main(["--input", str(src), "--output", str(out)]) == 0
@@ -15,7 +15,7 @@ def test_cli_writes_reports(tmp_path, sample_text, monkeypatch):
 
 
 def test_cli_partial_exit_code(tmp_path, sample_text, monkeypatch):
-    monkeypatch.setattr(cli, "make_llm", lambda s: FakeLLM(fail=["AtomicOut"]))
+    monkeypatch.setattr(cli, "make_llm", lambda s, cache=None: FakeLLM(fail=["AtomicOut"]))
     src = tmp_path / "r.md"
     src.write_text(sample_text)
     assert cli.main(["--input", str(src), "--output", str(tmp_path / "x.md")]) == 2
@@ -26,7 +26,7 @@ def test_cli_missing_file(tmp_path):
 
 
 def test_cli_without_key_refuses_unless_rules_only(tmp_path, sample_text, monkeypatch):
-    monkeypatch.setattr(cli, "make_llm", lambda s: None)
+    monkeypatch.setattr(cli, "make_llm", lambda s, cache=None: None)
     src, out = tmp_path / "r.md", tmp_path / "x.md"
     src.write_text(sample_text)
     assert cli.main(["--input", str(src), "--output", str(out)]) == 1
@@ -35,7 +35,7 @@ def test_cli_without_key_refuses_unless_rules_only(tmp_path, sample_text, monkey
 
 
 def test_cli_never_overwrites_input(tmp_path, sample_text, monkeypatch):
-    monkeypatch.setattr(cli, "make_llm", lambda s: FakeLLM())
+    monkeypatch.setattr(cli, "make_llm", lambda s, cache=None: FakeLLM())
     src = tmp_path / "r.md"
     src.write_text(sample_text)
     assert cli.main(["--input", str(src), "--output", str(src)]) == 1

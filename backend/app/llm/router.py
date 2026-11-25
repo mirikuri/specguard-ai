@@ -14,8 +14,8 @@ FINDERS = {"ConflictsOut", "AtomicOut", "SetOut", "FintechOut"}
 class ModelRouter:
     """Этапы распределены по моделям; при недоступности одной запрос уходит следующей."""
 
-    def __init__(self, clients: dict, main: str, light: str, validator: str):
-        self.clients = clients
+    def __init__(self, clients: dict, main: str, light: str, validator: str, cache=None):
+        self.clients, self.cache = clients, cache
         self.roles = {"main": main, "light": light, "validator": validator}
         self.model = main
         self.used: list[str] = []
@@ -50,8 +50,14 @@ class ModelRouter:
             return await self._sweep(prompt, schema, deadline)
 
     async def _sweep(self, prompt, schema, deadline):
+        chain = self._chain(ROLE.get(schema.__name__, "main"))
+        if self.cache:  # сначала ищем готовый ответ любой модели, чтобы не тратить лимит
+            for name in chain:
+                if (out := self.cache.get(name, prompt, schema)) is not None:
+                    self._record(name, schema, " (кеш)")
+                    return out
         last = LLMError("Лимиты всех настроенных моделей исчерпаны.")
-        for name in self._chain(ROLE.get(schema.__name__, "main")):
+        for name in chain:
             if name in self._exhausted:  # исчерпана параллельным запросом
                 continue
             try:
@@ -65,10 +71,15 @@ class ModelRouter:
                 log.warning("%s недоступна для %s: %s", name, schema.__name__, e)
                 last = LLMError(f"{name}: {e}", can_switch=True)
                 continue
-            self.used.append(name)
-            if (stage := STAGE_MODELS.get()) is not None:
-                stage.append(name)
-            if schema.__name__ in FINDERS:
-                self._finders.add(name)
+            self._record(name, schema)
+            if self.cache:
+                self.cache.put(name, prompt, schema, out)
             return out
         raise last
+
+    def _record(self, name, schema, note=""):
+        self.used.append(name + note)
+        if (stage := STAGE_MODELS.get()) is not None:
+            stage.append(name + note)
+        if schema.__name__ in FINDERS:
+            self._finders.add(name)

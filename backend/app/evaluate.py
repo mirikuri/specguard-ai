@@ -10,7 +10,8 @@ import json
 import sys
 from pathlib import Path
 
-from .config import ROOT, get_settings
+from .config import CACHE_DIR, ROOT, get_settings
+from .llm.cache import ResponseCache
 from .llm.gemini import make_llm
 from .parser import parse_document
 from .pipeline import analyze
@@ -95,13 +96,14 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dataset", action="store_true")
     p.add_argument("--rules-only", action="store_true")
+    p.add_argument("--cache", action="store_true")
     p.add_argument("--report", type=Path)
     a = p.parse_args(argv)
     if a.report:
         out = check_report(a.report)
     elif a.dataset:
         s = get_settings()
-        llm = None if a.rules_only else make_llm(s)
+        llm = None if a.rules_only else make_llm(s, ResponseCache(CACHE_DIR) if a.cache else None)
         if llm is None and not a.rules_only:
             print("Не задан GEMINI_API_KEY.", file=sys.stderr)
             return 1
