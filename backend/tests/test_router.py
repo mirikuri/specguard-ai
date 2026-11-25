@@ -5,7 +5,7 @@ from fake_llm import FakeLLM
 
 from app.config import Settings
 from app.errors import LLMError
-from app.llm.gemini import make_llm
+from app.llm.openrouter import make_llm
 from app.llm.router import ModelRouter
 from app.llm.schemas import AtomicOut, ExtractionOut, FintechOut, ValidationOut
 from app.pipeline import analyze
@@ -99,14 +99,14 @@ def test_report_names_models_really_used(doc):
 
 
 def test_make_llm_builds_unique_chain():
-    s = Settings(_env_file=None, gemini_api_key="k", gemini_model="a", gemini_light_model="b",
-                 gemini_validator_model="a", gemini_fallback_models="b, c")
+    s = Settings(_env_file=None, openrouter_api_key="k", llm_model="a", llm_light_model="b",
+                 llm_validator_model="a", llm_fallback_models="b, c")
     assert list(make_llm(s).clients) == ["a", "b", "c"]
 
 
 def test_finder_prefers_strong_validator_model_over_light():
-    s = Settings(_env_file=None, gemini_api_key="k", gemini_model="a", gemini_light_model="lite",
-                 gemini_validator_model="strong", gemini_fallback_models="")
+    s = Settings(_env_file=None, openrouter_api_key="k", llm_model="a", llm_light_model="lite",
+                 llm_validator_model="strong", llm_fallback_models="")
     assert make_llm(s)._chain("main") == ["a", "strong", "lite"]
 
 

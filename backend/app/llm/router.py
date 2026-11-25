@@ -14,8 +14,8 @@ FINDERS = {"ConflictsOut", "AtomicOut", "SetOut", "FintechOut"}
 class ModelRouter:
     """Этапы распределены по моделям; при недоступности одной запрос уходит следующей."""
 
-    def __init__(self, clients: dict, main: str, light: str, validator: str, cache=None):
-        self.clients, self.cache = clients, cache
+    def __init__(self, clients: dict, main: str, light: str, validator: str, cache=None, api=None, need: int = 0):
+        self.clients, self.cache, self.api, self.need = clients, cache, api, need
         self.roles = {"main": main, "light": light, "validator": validator}
         self.model = main
         self.used: list[str] = []
@@ -24,6 +24,15 @@ class ModelRouter:
         self._busy_until: dict[str, float] = {}
         self.cooldown = 180.0
         self.pause = 20.0
+
+    async def preflight(self) -> None:
+        """До начала анализа: ключ принят и лимита хватит на прогон."""
+        if self.api:
+            await self.api.preflight(self.need)
+
+    async def close(self) -> None:
+        if self.api:
+            await self.api.close()
 
     @property
     def degraded(self) -> list[str]:

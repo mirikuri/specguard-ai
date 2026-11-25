@@ -32,7 +32,7 @@ STAGES = [
 ]
 TITLES = {i: t for i, t, _ in STAGES}
 PROGRESS = {i: p for i, _, p in STAGES}
-ATOMIC_BATCH, VALIDATION_BATCH, FIX_BATCH = 20, 40, 25
+ATOMIC_BATCH, VALIDATION_BATCH, FIX_BATCH = 10, 40, 10
 CHUNK_CHARS, MAX_CHUNKS = 120_000, 5
 CONFIRM_THRESHOLD = 0.75
 
@@ -490,11 +490,23 @@ class Analysis:
                        priorities=[f"{f.id} «{f.title}»: {f.recommendation}" for f in top[:7]])
 
     async def run(self) -> AnalysisReport:
+        try:
+            if preflight := getattr(self.llm, "preflight", None):
+                await preflight()
+            return await self._run()
+        finally:
+            if close := getattr(self.llm, "close", None):
+                await close()
+
+    async def _run(self) -> AnalysisReport:
         started, t0 = datetime.now(timezone.utc), time.monotonic()
         self.deadline = asyncio.get_running_loop().time() + self.timeout
         o = self.options
         await self.stage("requirements_extraction", self.extract)
         if not self.requirements:
+            if self.llm is not None:  # без требований остальные этапы дали бы бессмысленный отчёт
+                s = self.stages[-1]
+                raise LLMError(f"Анализ остановлен. {s.title}: {s.message}")
             self.requirements = fallback_requirements(self.doc)
         self.locator = EvidenceLocator(self.doc, self.requirements)
         await self.stage("structure_rules", self.rules, needs_llm=False)

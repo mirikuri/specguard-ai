@@ -11,18 +11,16 @@ CACHE_DIR = ROOT / ".cache" / "llm"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=(ROOT / ".env", ".env"), extra="ignore")
 
-    gemini_api_key: str = ""
-    gemini_model: str = "gemini-3.8-flash"
-    gemini_light_model: str = "gemini-3.5-flash-lite"
-    gemini_validator_model: str = "gemini-3.6-flash"
-    gemini_fallback_models: str = (
-        "gemini-4-hydrogen,gemini-3.5-flash,gemma-4-31b-it,gemma-4-26b-a4b-it,gemini-3.1-flash-lite")
+    openrouter_api_key: str = ""
+    llm_model: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
+    llm_light_model: str = "inclusionai/ling-3.2-flash:free"
+    llm_validator_model: str = "particle-ai/particle-1:free"
+    llm_fallback_models: str = "nvidia/nemotron-3.5-super-vl:free,google/gemma-4-31b-it:free"
     agent_version: str = "0.1.0"
     max_file_size_mb: int = 10
-    llm_timeout: int = 120
+    llm_timeout: int = 90
     analysis_timeout: int = 900
     max_retries: int = 1
-    llm_min_interval: float = 4.0
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
     frontend_port: int = 5173

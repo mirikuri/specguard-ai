@@ -7,7 +7,7 @@ from pathlib import Path
 from .config import CACHE_DIR, get_settings
 from .errors import SpecGuardError
 from .llm.cache import ResponseCache
-from .llm.gemini import make_llm
+from .llm.openrouter import make_llm
 from .parser import parse_document
 from .pipeline import analyze
 from .reports import render
@@ -24,7 +24,6 @@ def main(argv=None) -> int:
     p.add_argument("--cache", action="store_true", help="отладка: повторно использовать сохранённые ответы модели")
     a = p.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(message)s", stream=sys.stderr)
-    logging.getLogger("google_genai").setLevel(logging.ERROR)
     settings = get_settings()
     err = lambda m: print(f"Ошибка: {m}", file=sys.stderr)
     if a.output.suffix.lower() not in FORMATS:
@@ -39,7 +38,7 @@ def main(argv=None) -> int:
         doc = parse_document(a.input.name, a.input.read_bytes(), settings.max_bytes)
         llm = None if a.rules_only else make_llm(settings, ResponseCache(CACHE_DIR) if a.cache else None)
         if llm is None and not a.rules_only:
-            err("не задан GEMINI_API_KEY в .env. Без модели доступен режим --rules-only (частичный отчёт).")
+            err("не задан OPENROUTER_API_KEY в .env. Без модели доступен режим --rules-only (частичный отчёт).")
             return 1
         report = asyncio.run(analyze(doc, llm, timeout=settings.analysis_timeout,
                                      on_progress=lambda s, n, m: print(f"[{n:3}%] {m}", flush=True)))

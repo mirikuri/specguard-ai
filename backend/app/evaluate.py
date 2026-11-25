@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .config import CACHE_DIR, ROOT, get_settings
 from .llm.cache import ResponseCache
-from .llm.gemini import make_llm
+from .llm.openrouter import make_llm
 from .parser import parse_document
 from .pipeline import analyze
 
@@ -105,7 +105,7 @@ def main(argv=None) -> int:
         s = get_settings()
         llm = None if a.rules_only else make_llm(s, ResponseCache(CACHE_DIR) if a.cache else None)
         if llm is None and not a.rules_only:
-            print("Не задан GEMINI_API_KEY.", file=sys.stderr)
+            print("Не задан OPENROUTER_API_KEY.", file=sys.stderr)
             return 1
         out = asyncio.run(run_dataset(llm, s.analysis_timeout))
     else:

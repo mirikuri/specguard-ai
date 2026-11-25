@@ -5,7 +5,7 @@ import time
 
 import pytest
 from fake_llm import FakeLLM, raw
-from test_llm import Err, call
+from test_llm import call, fail
 from test_rules import API, rules
 
 from app.analysis.dedup import merge
@@ -129,8 +129,7 @@ def test_pdf_table_continued_without_header_keeps_row():
 # --- модель ---
 
 def test_per_minute_limit_does_not_ban_model():
-    e = Err(429)
-    e.args = ("quotaId: GenerateRequestsPerMinutePerProjectPerModel-FreeTier",)
+    e = fail(429, "Rate limit exceeded: free-models-per-min")
     with pytest.raises(LLMError) as x:
         call(e, e, e)[1]()
     assert x.value.can_switch and not x.value.exhausted

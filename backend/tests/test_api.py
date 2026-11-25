@@ -73,7 +73,7 @@ def test_no_key(monkeypatch, sample_text):
     with TestClient(main.create_app()) as c:
         did = upload(c, sample_text).json()["document_id"]
         r = c.post("/api/v1/analyses", json={"document_id": did})
-        assert r.status_code == 503 and "GEMINI_API_KEY" in r.json()["detail"]
+        assert r.status_code == 503 and "OPENROUTER_API_KEY" in r.json()["detail"]
         r = c.post("/api/v1/analyses", json={"document_id": did, "rules_only": True})
         assert finish(c, r.json()["analysis_id"])["status"] == "partial"
 

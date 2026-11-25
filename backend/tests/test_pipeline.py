@@ -62,8 +62,7 @@ def test_validator_failure_confirms_nothing_from_llm(doc):
 
 
 @pytest.mark.parametrize("schema,stage", [("AtomicOut", "atomic_analysis"), ("SetOut", "consistency_analysis"),
-                                          ("FintechOut", "fintech_analysis"), ("FixesOut", "fix_generation"),
-                                          ("ExtractionOut", "requirements_extraction")])
+                                          ("FintechOut", "fintech_analysis"), ("FixesOut", "fix_generation")])
 def test_stage_failure_is_partial_and_named(doc, schema, stage):
     r = run(doc, FakeLLM(fail=[schema]))
     assert r.status == "partial"

@@ -7,8 +7,8 @@ from .evidence import EvidenceLocator
 
 WRITE = re.compile(r"\b(сохран(ение|ить|яет)|измен(ение|ить|яет)|удал(ение|ить|яет)|созда(ние|ть|ет|ёт)|обнов(ление|ить|ляет)|замен(а|ить|яет))\b", re.I)
 READ = re.compile(r"\b(чтени[ея]|получени[ея]|прочитать|просмотр)\b", re.I)
-WRITE_URL = re.compile(r"/(save|update|delete|create|remove|set)(?=[A-Z_\-/`'\"\s?]|$)")
-GET_LINE = re.compile(r"\bGET\s+`?\S*/(save|update|delete|create|remove|set)(?=[A-Z_\-/`'\"\s?]|$)")
+WRITE_URL = re.compile(r"/(save|update|delete|create|remove|set)(?=[A-Z_\-/`'\"\s?.,;:)]|$)")
+GET_LINE = re.compile(r"\bGET\s+`?\S*/(save|update|delete|create|remove|set)(?=[A-Z_\-/`'\"\s?.,;:)]|$)")
 STATUS_START = re.compile(r"^[#*\s|`]*([1-5]\d\d)\b")
 PLACEHOLDER = re.compile(r"\b(TBD|TODO|будет заполнено|заполня(ю|е)тся (позже|далее|\w+ами)|заполнить позже)\b|^\W*уточняется\W*$", re.I)
 TYPES = {"integer": "integer", "int": "integer", "number": "number", "string": "string", "str": "string",
@@ -75,10 +75,17 @@ def run_rules(doc: Document, locator: EvidenceLocator) -> list[Finding]:
                 "Адрес метода GET обозначает изменение данных. По RFC 9110 GET не должен менять состояние.",
                 "Кеш или повтор запроса могут изменить данные без действия клиента.", "Использовать PUT, POST или DELETE.")
         if s.kind in ("paragraph", "list_item") and PLACEHOLDER.search(s.text) and len(s.text) < 120:
-            add("template-placeholder", f"Раздел «{last_heading(s)}» оставлен заглушкой", "incompleteness", "complete",
-                "medium", [s], "Вместо содержания оставлена фраза шаблона.",
-                "Раздел нельзя использовать как основание для разработки и тестирования.",
-                "Заполнить раздел либо указать, почему он не требуется.", is_gap=True)
+            mark = re.search(r"\b(TBD|TODO)\b", s.text)
+            if mark and len(s.text.split()) > 4:  # требование написано, не определена его часть
+                add("template-placeholder", f"Значение не определено: {mark[1]}", "incompleteness", "complete",
+                    "medium", [s], f"В тексте на месте значения стоит пометка {mark[1]}.",
+                    "Требование нельзя реализовать и проверить без этого значения.",
+                    "Указать значение или согласовать срок его определения.", is_gap=True)
+            else:
+                add("template-placeholder", f"Раздел «{last_heading(s)}» оставлен заглушкой", "incompleteness", "complete",
+                    "medium", [s], "Вместо содержания оставлена фраза шаблона.",
+                    "Раздел нельзя использовать как основание для разработки и тестирования.",
+                    "Заполнить раздел либо указать, почему он не требуется.", is_gap=True)
 
     params: dict[str, list[tuple[Segment, str]]] = {}
     for s in segs:
