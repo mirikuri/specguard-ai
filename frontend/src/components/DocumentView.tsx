@@ -19,7 +19,7 @@ export function DocumentView({ r, list, current, quote, pick }: { r: Report; lis
       const own = near.filter((s) => s.start <= from && s.end >= to).sort((a, b) => L.SEVERITIES.indexOf(a.f.severity) - L.SEVERITIES.indexOf(b.f.severity))
       if (!own.length) return <Fragment key={from}>{text}</Fragment>
       const at = own.findIndex((s) => s.f === current) // повторный щелчок переходит к следующему замечанию того же места
-      return <mark key={from} className={`${own[0].f.severity} ${at >= 0 ? 'on' : ''}`} data-f={own.map((s) => `${s.f.id}:${s.k}`).join(' ')}
+      return <mark key={from} className={`${own[0].f.severity} ${own.some((s) => s.f === current && s.k === quote) ? 'on' : at >= 0 ? 'same' : ''}`} data-f={own.map((s) => `${s.f.id}:${s.k}`).join(' ')}
         title={own.map((s) => s.f.title).join('\n')} onClick={() => pick(own[(at + 1) % own.length].f)}>{text}</mark>
     })
     const inner = p.code ? <code>{body}</code> : body

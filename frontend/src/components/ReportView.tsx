@@ -1,6 +1,7 @@
-import { Check as CheckIcon, Copy, Download, Printer } from 'lucide-react'
-import { Fragment, useMemo, useState, type KeyboardEvent } from 'react'
+import { Check as CheckIcon, ChevronLeft, ChevronRight, CircleCheck, CircleHelp, Copy, Download, Printer, TriangleAlert } from 'lucide-react'
+import { Fragment, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { api } from '../api'
+import { Link } from 'react-router-dom'
 import * as L from '../labels'
 import type { Check, Finding, Report } from '../types'
 import { Mosaic } from './Art'
@@ -24,10 +25,16 @@ export function ReportView({ id, report: r }: { id: string; report: Report }) {
 
   const list = useMemo(() => r.findings.filter((f) => (!severity || f.severity === severity) && (!status || f.status === status) && (!category || f.category === category)
     && (!q || `${f.id} ${f.title} ${f.requirement_ids.map(name).join(' ')} ${f.requirement_ids.join(' ')}`.toLowerCase().includes(q.trim().toLowerCase()))), [r, severity, status, category, q])
-  const shown = current && list.includes(current) ? current : list[0] ?? null
+  const groups = (['confirmed', 'needs_review'] as const).map((s) => ({ s, items: list.filter((f) => f.status === s) })).filter((g) => g.items.length)
+  const order = groups.flatMap((g) => g.items)
+  const filtered = !!(severity || status || category || q)
+  const reset = () => { setSeverity(''); setStatus(''); setCategory(''); setQ('') }
+  const go = (f: Finding) => { pick(f); document.getElementById(`f-${f.id}`)?.scrollIntoView({ block: 'nearest' }) }
+  const shown = current && list.includes(current) ? current : order[0] ?? null
+  const at = shown ? order.indexOf(shown) : -1
   const step = (e: KeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
-    const next = list[list.indexOf(shown!) + (e.key === 'ArrowDown' ? 1 : -1)]
+    const next = order[order.indexOf(shown!) + (e.key === 'ArrowDown' ? 1 : -1)]
     if (!next) return
     e.preventDefault()
     pick(next)
@@ -39,15 +46,16 @@ export function ReportView({ id, report: r }: { id: string; report: Report }) {
       <section className="panel verdict">
         <Mosaic seed={id} cols={2} rows={2} className="verdict-art" />
         <div className={`gauge ${r.readiness.status}`}><b>{r.readiness.score ?? '–'}</b><span>{r.readiness.score == null ? 'нет оценки' : 'из 100'}</span></div>
-        <div className="verdict-text"><h1>{r.document_name}</h1><b className={`state ${r.readiness.status}`}>{L.READINESS[r.readiness.status]}</b><p>{r.verdict.text}</p></div>
+        <div className="verdict-text"><h1>{r.document_name}</h1><b className={`state ${r.readiness.status}`}>{L.READINESS[r.readiness.status]}</b>{r.status === 'completed' && <p>{r.verdict.text}</p>}</div>
         <div className="counts">
           {L.SEVERITIES.slice(0, 4).map((s) => { const n = r.findings.filter((f) => f.severity === s).length; return <button key={s} className={`count ${s}`} aria-pressed={severity === s} disabled={!n} onClick={() => toggle(s)}><b>{n}</b>{L.SEVERITY[s]}</button> })}
           <button className="count" aria-pressed={status === 'needs_review'} disabled={!r.summary.needs_review_count} onClick={() => { setStatus(status ? '' : 'needs_review'); setSeverity(''); setTab('findings') }}><b>{r.summary.needs_review_count}</b>Требуют решения</button>
         </div>
       </section>
+      {r.status !== 'completed' && <div className="partial"><TriangleAlert aria-hidden /><p><b>Проверка неполная, вывод о готовности сделать нельзя.</b> Не выполнено: {r.stages.filter((s) => s.status === 'failed' || s.status === 'partial').map((s) => L.lowerFirst(s.title)).join(', ')}.</p><Link className="btn" to="/">Проверить заново</Link></div>}
       <div className="toolbar panel">
         <div className="tabs" role="tablist">
-          {([['findings', `Замечания (${r.findings.length})`], ['requirements', `Требования (${r.requirements.length})`], ['summary', 'Сводка и паспорт']] as const).map(([k, t]) => (
+          {([['findings', `Замечания (${r.findings.length})`], ['requirements', `Требования (${r.requirements.length})`], ['summary', 'Сводка']] as const).map(([k, t]) => (
             <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{t}</button>
           ))}
         </div>
@@ -64,17 +72,19 @@ export function ReportView({ id, report: r }: { id: string; report: Report }) {
               <select aria-label="Категория" value={category} onChange={(e) => setCategory(e.target.value)}><option value="">Все категории</option>{[...new Set(r.findings.map((f) => f.category))].map((c) => <option key={c} value={c}>{L.CATEGORY[c]}</option>)}</select>
               <select aria-label="Статус" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">Любой статус</option><option value="confirmed">Подтверждено</option><option value="needs_review">Требует решения</option></select>
             </div>
-            <ul onKeyDown={step}>{list.map((f) => (
+            {filtered && <p className="found-line">Показано {list.length} из {r.findings.length}<button className="link" onClick={reset}>Показать все</button></p>}
+            <div className="rows" onKeyDown={step}>{groups.map((g) => <section key={g.s}><h3 className="group">{g.s === 'confirmed' ? <CircleCheck aria-hidden /> : <CircleHelp aria-hidden />}{g.s === 'confirmed' ? 'Подтверждено' : 'Требует решения аналитика'}<span>{g.items.length}</span></h3><ul>{g.items.map((f) => (
               <li key={f.id}><button id={`f-${f.id}`} className={`row ${f.severity}`} aria-current={f === shown} onClick={() => pick(f)}>
-                <span className="row-top"><span className={`tag ${f.severity}`}>{L.SEVERITY[f.severity]}</span>{f.status === 'needs_review' && <span className="tag review">Требует решения</span>}<span className="row-id">{f.id}</span></span>
+                <span className="row-top"><span className={`tag ${f.severity}`}>{L.SEVERITY[f.severity]}</span><span className="row-id">{f.id}</span></span>
                 <b>{f.title}</b>
                 <span className="dim">{L.CATEGORY[f.category]}{f.requirement_ids.length > 0 && `, ${f.requirement_ids.map(name).filter(Boolean).slice(0, 3).join(', ')}`}</span>
               </button></li>
-            ))}{list.length === 0 && <li className="pad dim">Ничего не найдено. <button className="link" onClick={() => { setSeverity(''); setStatus(''); setCategory(''); setQ('') }}>Сбросить фильтры</button></li>}</ul>
+            ))}</ul></section>)}{list.length === 0 && <p className="pad dim">Ничего не найдено.</p>}</div>
           </section>
-          <section className="panel col"><header className="panel-head"><h2>Документ</h2><span className="dim">цитаты выделены</span></header>
+          <section className="panel col"><header className="panel-head"><h2>Документ</h2><span className="key"><i className="k-on" />открытое замечание<i className="k-other" />другие</span></header>
             <DocumentView r={r} list={list} current={shown} quote={quote} pick={pick} /></section>
-          <section className="panel col detail" aria-live="polite">{shown && <Detail key={shown.id} f={shown} name={name} quote={quote} setQuote={setQuote} />}</section>
+          <section className="panel col detail" aria-live="polite">{shown && <><Detail key={shown.id} f={shown} name={name} quote={quote} setQuote={setQuote} />
+            <footer className="pager"><button className="btn" disabled={at <= 0} onClick={() => go(order[at - 1])}><ChevronLeft aria-hidden />Назад</button><span>{at + 1} из {order.length}</span><button className="btn" disabled={at === order.length - 1} onClick={() => go(order[at + 1])}>Далее<ChevronRight aria-hidden /></button></footer></>}</section>
         </div>)}
       {tab === 'requirements' && <Requirements r={r} open={open} />}
       {tab === 'summary' && <Summary r={r} open={open} />}
@@ -83,31 +93,31 @@ export function ReportView({ id, report: r }: { id: string; report: Report }) {
   )
 }
 
-function Body({ f }: { f: Finding }) {
+function Body({ f, action }: { f: Finding; action?: ReactNode }) {
   const x = f.fix
   return <>
     <h3>В чём проблема</h3><p>{f.explanation}</p>
     <h3>К чему приведёт</h3><p>{f.impact}</p>
-    <h3>Что сделать</h3><p>{f.recommendation}</p>
-    {x && <div className="fix"><h3>Вариант формулировки</h3><p>{x.proposed_text}</p>
+    <h3 className="do">Что сделать</h3><p>{f.recommendation}</p>
+    {!x?.proposed_text && action}
+    {x?.proposed_text && <div className="fix"><h3>Готовая формулировка</h3><p>{x.proposed_text}</p>{action}
       {x.acceptance_criteria && <><h3>Критерий приёмки</h3><p>{x.acceptance_criteria}</p></>}</div>}
     {x?.clarification_required && <div className="ask-box"><h3>Вопрос аналитику</h3><p>{x.clarification_question}</p></div>}
   </>
 }
 
 function Detail({ f, name, quote, setQuote }: { f: Finding; name: (id: string | null) => string | undefined; quote: number; setQuote: (n: number) => void }) {
-  return <>
+  return <div className="detail-body">
     <header className="detail-head"><span className="row-top"><span className={`tag ${f.severity}`}>{L.SEVERITY[f.severity]}</span><span className={`tag ${f.status === 'confirmed' ? 'ok' : 'review'}`}>{L.STATUS[f.status]}</span><span className="row-id">{f.id}</span></span><h2>{f.title}</h2></header>
     <div className="pad">
       <h3>{f.evidence.length > 1 ? `Цитаты (${f.evidence.length})` : 'Цитата'}</h3>
       {f.evidence.map((e, k) => (
         <button key={k} className="quote" aria-current={k === quote} title="Показать в документе" onClick={() => setQuote(k)}><span>{name(e.requirement_id) ?? e.section.split(' / ').at(-1)}{e.page ? `, стр. ${e.page}` : ''}</span>{L.clean(e.quote)}</button>
       ))}
-      <Body f={f} />
-      <CopyButton text={f.fix?.proposed_text || f.recommendation} />
-      <p className="dim small">Источник: {L.SOURCE[f.source]}. Уверенность {Math.round(f.confidence * 100)}%. {f.validation_note}</p>
+      <Body f={f} action={<CopyButton text={f.fix?.proposed_text || f.recommendation} />} />
+      <details className="origin"><summary>Откуда это замечание</summary><p>Источник: {L.SOURCE[f.source]}. Уверенность {Math.round(f.confidence * 100)}%. {f.validation_note}</p></details>
     </div>
-  </>
+  </div>
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -115,7 +125,7 @@ function CopyButton({ text }: { text: string }) {
   return <button className="btn" onClick={async () => {
     try { await navigator.clipboard.writeText(text); setState('Скопировано') } catch { setState('Не удалось скопировать') }
     setTimeout(() => setState(''), 2000)
-  }}>{state === 'Скопировано' ? <CheckIcon aria-hidden /> : <Copy aria-hidden />}{state || 'Скопировать исправление'}</button>
+  }}>{state === 'Скопировано' ? <CheckIcon aria-hidden /> : <Copy aria-hidden />}{state || 'Скопировать'}</button>
 }
 
 function Checks({ items }: { items: Check[] }) {
