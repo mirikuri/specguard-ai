@@ -1,3 +1,6 @@
+import type { Severity } from './types'
+
+export const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low', 'info']
 export const SEVERITY: Record<string, string> = { critical: 'Критичная', high: 'Высокая', medium: 'Средняя', low: 'Низкая', info: 'Справочно' }
 export const STATUS: Record<string, string> = { confirmed: 'Подтверждено', needs_review: 'Требует решения', rejected: 'Отклонено' }
 export const CHECK: Record<string, string> = { pass: 'Да', fail: 'Нет', needs_review: 'Уточнить', not_applicable: 'Не применимо', not_evaluated: 'Не оценено' }

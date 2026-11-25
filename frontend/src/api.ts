@@ -7,8 +7,9 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     r = await fetch(BASE + path, init)
   } catch {
-    throw new Error('Сервер не отвечает. Проверьте, что backend запущен.')
+    throw new Error('Сервер не отвечает.')
   }
+  if (r.status === 204) return undefined as T
   const body = await r.json().catch(() => null)
   if (!r.ok) throw new Error(typeof body?.detail === 'string' ? body.detail : `Сервер вернул ошибку ${r.status}.`)
   return body as T
@@ -19,6 +20,7 @@ export const api = {
   recent: () => call<AnalysisInfo[]>('/analyses'),
   status: (id: string) => call<AnalysisInfo>(`/analyses/${id}`),
   report: (id: string) => call<Report>(`/analyses/${id}/report`),
+  remove: (id: string) => call<void>(`/analyses/${id}`, { method: 'DELETE' }),
   exportUrl: (id: string, format: string) => `${BASE}/analyses/${id}/export?format=${format}`,
   upload(file: File) {
     const form = new FormData()

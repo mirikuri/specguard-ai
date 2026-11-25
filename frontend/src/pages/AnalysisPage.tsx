@@ -1,4 +1,3 @@
-import { Check, Circle, LoaderCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api'
@@ -11,11 +10,10 @@ export function AnalysisPage() {
   const [report, setReport] = useState<Report | null>(null)
   const [stages, setStages] = useState<Health['stages']>([])
   const [error, setError] = useState('')
+  const [now, setNow] = useState(Date.now())
 
   useEffect(() => {
-    let stop = false
-    let timer = 0
-    let misses = 0
+    let stop = false, timer = 0, misses = 0
     setInfo(null); setReport(null); setError('')
     api.health().then((h) => !stop && setStages(h.stages)).catch(() => {})
     async function poll() {
@@ -39,34 +37,31 @@ export function AnalysisPage() {
       timer = window.setTimeout(poll, 1500)
     }
     poll()
-    return () => { stop = true; clearTimeout(timer) }
+    const clock = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => { stop = true; clearTimeout(timer); clearInterval(clock) }
   }, [id])
 
   if (report) return <ReportView id={id} report={report} />
   if (info?.status === 'failed' || (error && !info))
     return (
-      <div className="narrow">
-        <h1>Анализ не выполнен</h1>
+      <div className="page">
+        <h1>Проверка не выполнена</h1>
         <p className="error" role="alert">{info?.status === 'failed' ? info.message : error}</p>
-        <Link className="primary" to="/">Загрузить документ снова</Link>
+        <p><Link to="/">К проверкам</Link></p>
       </div>
     )
+  const seconds = info ? Math.max(0, Math.floor((now - Date.parse(info.created_at)) / 1000)) : 0
   return (
-    <div className="narrow">
-      <h1>{info ? `Проверяем ${info.document_name}` : 'Открываем анализ'}</h1>
-      <progress max={100} value={info?.progress ?? 0} aria-label="Ход анализа" />
-      <p className="dim" aria-live="polite">{error || (info?.active.length ? stages.filter((s) => info.active.includes(s.id)).map((s) => s.title).join(', ') : info?.message ?? '')}</p>
-      <ol className="stages">
+    <div className="page">
+      <h1>{info?.document_name ?? 'Проверка'}</h1>
+      <p className="elapsed">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</p>
+      {error && <p className="error" role="alert">{error}</p>}
+      <ol className="stages" aria-live="polite">
         {stages.map((s) => {
-          const done = info?.done.includes(s.id), now = info?.active.includes(s.id)
-          return (
-            <li key={s.id} className={done ? 'done' : now ? 'now' : ''}>
-              {done ? <Check aria-label="пройден" /> : now ? <LoaderCircle className="spin" aria-label="выполняется" /> : <Circle aria-label="ожидает" />}{s.title}
-            </li>
-          )
+          const done = info?.done.includes(s.id), active = info?.active.includes(s.id)
+          return <li key={s.id} className={done ? 'done' : active ? 'now' : ''}>{s.title}<span>{done ? 'готово' : active ? 'выполняется' : ''}</span></li>
         })}
       </ol>
-      <p className="dim">На бесплатном тарифе Gemini проверка обычно занимает несколько минут. Страницу можно обновлять.</p>
     </div>
   )
 }

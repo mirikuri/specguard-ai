@@ -2,14 +2,14 @@
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Отчёт: {{ r.document_name }}</title>
 <style>
-:root{--ink:#14263b;--dim:#5b6b7d;--line:#d5dde5;--bg:#eef2f5;--crit:#a3182f;--high:#b4530a;--med:#7a6300;--low:#4a6076}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI",system-ui,sans-serif}
-main{max-width:1040px;margin:auto;padding:32px 16px;background:#fff}
-h1{font-size:28px;line-height:1.2}h2{margin-top:48px;font-size:22px}h3{margin:28px 0 8px;font-size:17px}
-table{border-collapse:collapse;width:100%;font-size:14px;margin:12px 0}th,td{text-align:left;vertical-align:top;padding:6px 10px;border-bottom:1px solid var(--line)}
-.wrap{overflow-x:auto}blockquote{margin:8px 0;padding:8px 14px;background:var(--bg);white-space:pre-wrap;overflow-wrap:anywhere}
-.warn{background:#fdeedd;padding:12px 16px}.dim{color:var(--dim);font-size:14px}.critical{color:var(--crit)}.high{color:var(--high)}.medium{color:var(--med)}.low,.info{color:var(--low)}
-.fail{color:var(--crit);font-weight:600}.needs_review{color:var(--high)}article{border-top:1px solid var(--line);break-inside:avoid}
+:root{--ink:#1a1a1a;--dim:#5c5c5c;--line:#c9c9c9;--red:#8c1c13}
+*{box-sizing:border-box}body{margin:0;background:#fff;color:var(--ink);font:16px/1.6 "PT Serif",Georgia,"Times New Roman",serif}
+main{max-width:960px;margin:auto;padding:40px 24px}
+h1{font-size:30px;line-height:1.25;overflow-wrap:anywhere}h2{margin:48px 0 12px;font-size:21px;border-bottom:1px solid var(--ink);padding-bottom:6px}h3{margin:24px 0 8px;font-size:17px}
+table{border-collapse:collapse;width:100%;font-size:15px;margin:12px 0}th,td{text-align:left;vertical-align:top;padding:6px 12px 6px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.wrap{overflow-x:auto}blockquote{margin:8px 0;padding-left:14px;border-left:1px solid var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
+.dim{color:var(--dim);font-size:14px}.warn,.critical,.high,.fail,.needs_review{color:var(--red)}.fail{font-weight:700}
+article{border-top:1px solid var(--line);break-inside:avoid}h2+article{border-top:0}
 </style></head><body><main>
 <h1>Отчёт о проверке требований: {{ r.document_name }}</h1>
 {% if r.status != 'completed' %}<p class="warn"><b>Отчёт частичный.</b> Не все этапы выполнены, отсутствие замечаний не означает отсутствие дефектов.</p>{% endif %}
