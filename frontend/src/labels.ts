@@ -15,3 +15,5 @@ export function plural(n: number, one: string, few: string, many: string) {
   const a = n % 10, b = n % 100
   return `${n} ${a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many}`
 }
+/** Цитата для чтения: без служебных знаков Markdown. Точный текст остаётся в документе и выгрузках. */
+export const clean = (s: string) => s.replace(/\*\*|`/g, '').replace(/^\s*[|*\-]\s+|\s*\|\s*$/g, '').replace(/\s*\|\s*/g, ' · ').trim()

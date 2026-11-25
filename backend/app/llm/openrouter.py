@@ -15,6 +15,7 @@ from .router import ModelRouter
 log = logging.getLogger("specguard.llm")
 BASE = "https://openrouter.ai/api/v1"
 RUN_REQUESTS = 12  # столько запросов уходит на небольшой документ
+NO_REASONING = {"ExtractionOut", "AtomicOut", "FixesOut", "DuplicatesOut"}  # механические шаги: рассуждения замедляют их в 4 раза
 TRANSIENT = {408, 429, 500, 502, 503, 504, 524, 529}
 ACCOUNT = {401: "неверный ключ, проверьте OPENROUTER_API_KEY", 402: "на счёте нет средств для этой модели",
            403: "у ключа нет доступа"}
@@ -126,6 +127,8 @@ class OpenRouterClient:
             {"role": "user", "content": prompt}]}
         params = await self.api.supports(self.model)
         if schema.__name__ not in self._plain:
+            if schema.__name__ in NO_REASONING and "reasoning" in params:
+                body["reasoning"] = {"enabled": False}
             if "structured_outputs" in params:
                 body["response_format"] = {"type": "json_schema",
                                            "json_schema": {"name": schema.__name__, "strict": True, "schema": shape}}
@@ -149,11 +152,10 @@ class OpenRouterClient:
                 if r.status_code != 200 or err:
                     err = err if isinstance(err, dict) else {}
                     code = r.status_code if r.status_code != 200 else err.get("code")
-                    if code == 400 and "response_format" in body:
+                    if code == 400 and ("response_format" in body or "reasoning" in body):
                         self._plain.add(schema.__name__)
                         continue
-                    reason, wait = self._classify(code, err, r.headers)
-                    delay = max(delay, wait)
+                    reason = self._classify(code, err)
                 else:
                     choice = data["choices"][0]
                     text = choice["message"].get("content")
@@ -183,7 +185,7 @@ class OpenRouterClient:
             await asyncio.sleep(delay)
 
     @staticmethod
-    def _classify(code, err, headers) -> tuple[str, float]:
+    def _classify(code, err) -> str:
         meta = err.get("metadata") if isinstance(err.get("metadata"), dict) else {}
         if code == 403 and meta.get("reasons"):
             raise LLMError("Модель отказалась обрабатывать текст.", can_switch=True, exhausted=True)
@@ -192,15 +194,9 @@ class OpenRouterClient:
         if code == 429:
             if re.search(r"per[-_ ]day|daily", str(err.get("message", "")), re.I):
                 raise LLMError("Исчерпан суточный лимит бесплатных запросов OpenRouter, он обновляется в 00:00 UTC.")
-            try:
-                wait = float(headers.get("retry-after", 0))
-            except ValueError:
-                wait = 0
-            if wait > 20:  # долгую паузу выгоднее переждать на другой модели
-                raise LLMError("Модель перегружена (429).", can_switch=True)
-            return "модель перегружена (429)", wait
+            raise LLMError("Модель перегружена (429).", can_switch=True)
         if code in TRANSIENT:
-            return f"временная ошибка модели ({code})", 0
+            return f"временная ошибка модели ({code})"
         raise LLMError(f"Модель отклонила запрос ({code})." if code != 404 else "Модель не найдена или сейчас недоступна (404).",
                        can_switch=True, exhausted=True)
 

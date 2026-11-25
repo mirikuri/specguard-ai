@@ -14,9 +14,9 @@ class Settings(BaseSettings):
 
     openrouter_api_key: str = ""
     llm_model: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
-    llm_light_model: str = "inclusionai/ling-3.2-flash:free"
-    llm_validator_model: str = "particle-ai/particle-1:free"
-    llm_fallback_models: str = "nvidia/nemotron-3.5-super-vl:free,google/gemma-4-31b-it:free"
+    llm_light_model: str = "nvidia/nemotron-3.5-super-vl:free"
+    llm_validator_model: str = "nvidia/nemotron-3.5-super-vl:free"
+    llm_fallback_models: str = "inclusionai/ling-3.2-flash:free,particle-ai/particle-1:free,google/gemma-4-31b-it:free"
     agent_version: str = "0.1.0"
     max_file_size_mb: int = 10
     llm_timeout: int = 90

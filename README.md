@@ -39,9 +39,9 @@ python -m app.main
 | Роль | Переменная | По умолчанию |
 | --- | --- | --- |
 | Проверка требований, набора, финтех | `LLM_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b:free` |
-| Выделение требований, исправления | `LLM_LIGHT_MODEL` | `inclusionai/ling-3.2-flash:free` |
-| Независимая проверка замечаний | `LLM_VALIDATOR_MODEL` | `particle-ai/particle-1:free` |
-| Запасные | `LLM_FALLBACK_MODELS` | `nvidia/nemotron-3.5-super-vl:free`, `google/gemma-4-31b-it:free` |
+| Выделение требований, исправления | `LLM_LIGHT_MODEL` | `nvidia/nemotron-3.5-super-vl:free` |
+| Независимая проверка замечаний | `LLM_VALIDATOR_MODEL` | `nvidia/nemotron-3.5-super-vl:free` |
+| Запасные | `LLM_FALLBACK_MODELS` | `inclusionai/ling-3.2-flash:free`, `particle-ai/particle-1:free`, `google/gemma-4-31b-it:free` |
 
 Если модель не найдена или перегружена, запрос уходит следующей. Замечания по возможности проверяет модель, которая их не искала. В паспорте указаны модели, реально выполнившие каждый этап.
 

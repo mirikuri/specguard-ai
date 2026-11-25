@@ -28,6 +28,8 @@ export interface Report {
 export interface AnalysisInfo {
   analysis_id: string; document_name: string; status: 'queued' | 'running' | 'completed' | 'partial' | 'failed'
   stage: string; progress: number; message: string; created_at: string; done: string[]; active: string[]
+  events?: { time: string; kind: 'info' | 'done' | 'warn' | 'error' | 'finding'; text: string }[]
+  started?: Record<string, string>; finished?: Record<string, string>
   score?: number | null; readiness_status?: string; findings_count?: number; requirements_count?: number
 }
 export interface Health { model: string; model_ready: boolean; version: string; stages: { id: string; title: string }[] }

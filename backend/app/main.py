@@ -48,6 +48,8 @@ def create_app() -> FastAPI:
     store = AnalysisStore(DATA_DIR)
     analyses: dict[str, dict] = store.load()
     tasks: set[asyncio.Task] = set()
+    running: dict[str, asyncio.Task] = {}
+    now = lambda: datetime.now(timezone.utc).isoformat()
     api = APIRouter(prefix="/api/v1")
 
     @app.exception_handler(DocumentError)
@@ -66,7 +68,9 @@ def create_app() -> FastAPI:
     def info(a):
         out = {k: a[k] for k in ("analysis_id", "document_name", "status", "stage", "progress", "message", "created_at", "done", "active")}
         if r := a["report"]:
-            out |= {"score": r.readiness.score, "readiness_status": r.readiness.status,
+            out |= {"severity": {s: getattr(r.summary, f"{s}_count") for s in ("critical", "high", "medium", "low")},
+                    "confirmed_count": r.summary.confirmed_count, "review_count": r.summary.needs_review_count,
+                    "score": r.readiness.score, "readiness_status": r.readiness.status,
                     "findings_count": r.summary.findings_count, "requirements_count": r.summary.requirements_count}
         return out
 
@@ -90,15 +94,21 @@ def create_app() -> FastAPI:
         return doc_info(did)
 
     async def work(a, doc, llm, options):
+        def event(kind, text):
+            if len(a["events"]) < 300:
+                a["events"].append({"time": now(), "kind": kind, "text": text})
+
         def progress(stage, percent, message):
             a["active"].append(stage)
+            a["started"][stage] = now()
             a.update(status="running", stage=stage, progress=percent, message=message)
         def done(stage):
             a["active"].remove(stage)
             a["done"].append(stage)
+            a["finished"][stage] = now()
 
         try:
-            report = await analyze(doc, llm, options, progress, settings.analysis_timeout, done)
+            report = await analyze(doc, llm, options, progress, settings.analysis_timeout, done, event)
             ready = dict(report=report, status=report.status, stage="", progress=100, message="Отчёт готов")
             try:
                 await asyncio.to_thread(store.save, {**a, **ready})
@@ -121,10 +131,17 @@ def create_app() -> FastAPI:
         doc = documents[body.document_id]["doc"]
         aid = "analysis_" + secrets.token_urlsafe(9)
         a = {"analysis_id": aid, "document_name": doc.name, "status": "queued", "stage": "", "progress": 0, "message": "В очереди",
-             "done": [], "active": [], "created_at": datetime.now(timezone.utc).isoformat(), "report": None}
+             "done": [], "active": [], "started": {}, "finished": {}, "events": [], "created_at": datetime.now(timezone.utc).isoformat(), "report": None}
         analyses[aid] = a
         task = asyncio.create_task(work(a, doc, llm, body.options))
         tasks.add(task)
+        running[aid] = task
+
+        def ended(t):
+            running.pop(aid, None)
+            if t.cancelled():  # в том числе до первого шага
+                a.update(status="failed", active=[], message="Отменено пользователем.")
+        task.add_done_callback(ended)
         task.add_done_callback(tasks.discard)
         return {"analysis_id": aid, "status": "queued"}
 
@@ -134,7 +151,16 @@ def create_app() -> FastAPI:
 
     @api.get("/analyses/{aid}")
     async def status(aid: str):
-        return info(get_analysis(aid))
+        a = get_analysis(aid)
+        return info(a) | {k: a.get(k, d) for k, d in (("events", []), ("started", {}), ("finished", {}))}
+
+    @api.post("/analyses/{aid}/cancel", status_code=202)
+    async def cancel(aid: str):
+        get_analysis(aid)
+        if aid not in running:
+            raise HTTPException(409, "Проверка уже завершена.")
+        running[aid].cancel()
+        return {"status": "cancelling"}
 
     @api.delete("/analyses/{aid}", status_code=204)
     async def delete(aid: str):

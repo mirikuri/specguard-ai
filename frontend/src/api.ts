@@ -21,6 +21,7 @@ export const api = {
   status: (id: string) => call<AnalysisInfo>(`/analyses/${id}`),
   report: (id: string) => call<Report>(`/analyses/${id}/report`),
   remove: (id: string) => call<void>(`/analyses/${id}`, { method: 'DELETE' }),
+  cancel: (id: string) => call<object>(`/analyses/${id}/cancel`, { method: 'POST' }),
   exportUrl: (id: string, format: string) => `${BASE}/analyses/${id}/export?format=${format}`,
   upload(file: File) {
     const form = new FormData()

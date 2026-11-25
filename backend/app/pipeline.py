@@ -12,7 +12,7 @@ from .analysis.rules import run_rules
 from .analysis.scoring import readiness
 from .config import agent_version
 from .errors import DocumentError, LLMError
-from .llm.router import STAGE_MODELS
+from .llm.router import EVENTS, STAGE_MODELS, tell
 from .llm.schemas import AtomicOut, ConflictsOut, DuplicatesOut, ExtractionOut, FintechOut, FixesOut, SetOut, ValidationOut
 from .models import (SEVERITY_ORDER, AnalysisOptions, AnalysisReport, CriterionCheck, Document, Finding, Fix,
                      Requirement, Segment, StageResult, Summary, Verdict)
@@ -42,10 +42,10 @@ class Skip(Exception):
 
 
 class Analysis:
-    def __init__(self, doc: Document, llm, options: AnalysisOptions, on_progress, timeout: float, on_done=None):
+    def __init__(self, doc: Document, llm, options: AnalysisOptions, on_progress, timeout: float, on_done=None, on_event=None):
         self.doc, self.llm, self.options, self.on_progress = doc, llm, options, on_progress
         self.deadline = None
-        self.on_done = on_done
+        self.on_done, self.on_event = on_done, on_event
         self.timeout = timeout
         self.stages: list[StageResult] = []
         self.requirements: list[Requirement] = []
@@ -73,9 +73,18 @@ class Analysis:
     async def ask(self, prompt, schema):
         return await self.llm.generate(prompt, schema, deadline=self.deadline)
 
-    async def ask_all(self, calls):
+    async def ask_all(self, calls, label=""):
         """Часть пакетов может не выполниться: возвращает ответы и сообщения об ошибках."""
-        results = await asyncio.gather(*(self.ask(p, s) for p, s in calls), return_exceptions=True)
+        ready = 0
+
+        async def one(prompt, schema):
+            nonlocal ready
+            out = await self.ask(prompt, schema)
+            ready += 1
+            if label and len(calls) > 1:
+                tell("info", f"{label}: часть {ready} из {len(calls)}")
+            return out
+        results = await asyncio.gather(*(one(p, s) for p, s in calls), return_exceptions=True)
         errors = []
         for r in results:
             if isinstance(r, LLMError):
@@ -110,6 +119,8 @@ class Analysis:
             except Exception:  # сбой одного этапа не должен терять остальные результаты
                 status, message = "failed", "Внутренняя ошибка этапа, подробности в журнале."
                 log.exception("Сбой этапа %s", sid)
+        if self.llm is not None and status in ("failed", "partial"):
+            tell("error", f"{TITLES[sid]}: {message}")
         self.stages.append(StageResult(id=sid, title=TITLES[sid], status=status, message=message,
                                        seconds=round(time.monotonic() - started, 1),
                                        models=list(dict.fromkeys(models))))
@@ -143,6 +154,7 @@ class Analysis:
         self.requirements = build_requirements(self.doc, items)
         if not self.requirements:
             raise LLMError("Модель не выделила ни одного требования.")
+        tell("done", f"Выделено требований: {len(self.requirements)}")
         return "; ".join(errors)
 
     def requirement_list(self, reqs):
@@ -154,7 +166,11 @@ class Analysis:
         return [r for r in self.requirements if r.segment_ids[0] in ids]
 
     async def rules(self):
-        self.findings += run_rules(self.doc, self.locator)
+        found = run_rules(self.doc, self.locator)
+        self.findings += found
+        tell("done", f"Программные правила: замечаний {len(found)}")
+        for f in found:
+            tell("finding", f.title)
 
     def accept(self, raw_findings, stage):
         for f in raw_findings:
@@ -181,6 +197,7 @@ class Analysis:
                 self.rejected.append(finding)
             else:
                 self.findings.append(finding)
+                tell("finding", finding.title)
 
     def accept_traces(self, traces):
         """Расхождение критерия с правилами не теряется, даже если модель не оформила замечание."""
@@ -210,7 +227,8 @@ class Analysis:
             for i in range(0, len(reqs), ATOMIC_BATCH):
                 calls.append((build_prompt("atomic", document_context=self.chunk_text(chunk),
                                            requirements=self.requirement_list(reqs[i:i + ATOMIC_BATCH])), AtomicOut))
-        results, errors = await self.ask_all(calls)
+        tell("info", f"Проверяем {len(self.requirements)} требований по 9 критериям")
+        results, errors = await self.ask_all(calls, "Проверка требований")
         by_id = {r.id: r for r in self.requirements}
         for res in results:
             if not isinstance(res, AtomicOut):
@@ -223,6 +241,7 @@ class Analysis:
             self.accept(res.findings, "atomic_analysis")
         missing = [r.id for r in self.requirements
                    if not r.checks or any(c.status == "not_evaluated" for c in r.checks)]
+        tell("done", f"Проверено требований: {len(self.requirements) - len(missing)} из {len(self.requirements)}")
         if missing:
             errors.append("Не полностью проверены: " + ", ".join(missing))
         return "; ".join(errors)
@@ -232,6 +251,7 @@ class Analysis:
         for c in self.chunks:
             parts = dict(document=self.chunk_text(c), requirements=self.requirement_list(self.chunk_requirements(c)))
             calls += [(build_prompt("consistency", **parts), SetOut), (build_prompt("conflicts", **parts), ConflictsOut)]
+        tell("info", "Сопоставляем требования между собой: ищем противоречия")
         results, errors = await self.ask_all(calls)
         if not any(isinstance(r, SetOut) for r in results):
             raise LLMError(errors[0])
@@ -259,6 +279,7 @@ class Analysis:
     async def fintech(self):
         profile = ", ".join([*(["финтех"] if self.options.fintech_analysis else []),
                              *(["безопасность"] if self.options.security_analysis else [])])
+        tell("info", "Проверяем сценарии: возвраты, повторы, сбои, права доступа")
         known = wrap_untrusted("\n".join(f"- {f.title}" for f in self.findings if f.rule_id) or "нет")
         results, errors = await self.ask_all([
             (build_prompt("fintech", profile=profile, already_found=known, document=self.chunk_text(c),
@@ -284,6 +305,7 @@ class Analysis:
             sections = {e.section for f in todo for e in f.evidence}
             context = wrap_untrusted("\n\n".join(s.text for s in self.doc.segments if s.section in sections)[:CHUNK_CHARS * 2])
         others = [f for f in self.findings if f.rule_id]
+        tell("info", f"Перепроверяем {len(todo)} предварительных замечаний: другая модель ищет опровержения")
         calls = []
         for i in range(0, len(todo), VALIDATION_BATCH):
             batch = todo[i:i + VALIDATION_BATCH]
@@ -337,6 +359,8 @@ class Analysis:
             await self.merge_duplicates()
         except LLMError as e:
             errors.append(f"Поиск дублей не выполнен: {e}")
+        n = sum(f.status == "confirmed" for f in self.findings)
+        tell("done", f"Подтверждено замечаний: {n}, требуют решения: {len(self.findings) - n}, отклонено: {len(self.rejected)}")
         return "; ".join(errors)
 
     async def merge_duplicates(self):
@@ -363,6 +387,7 @@ class Analysis:
     async def fixes(self):
         if not self.findings:
             return ""
+        tell("info", f"Готовим исправления для {len(self.findings)} замечаний")
         by_req = {r.id: r for r in self.requirements}
 
         def original(f):
@@ -493,6 +518,8 @@ class Analysis:
         try:
             if preflight := getattr(self.llm, "preflight", None):
                 await preflight()
+            EVENTS.set(self.on_event)
+            tell("done", f"Документ прочитан: {len(self.doc.text)} знаков, {sum(s.kind != 'heading' for s in self.doc.segments)} фрагментов")
             return await self._run()
         finally:
             if close := getattr(self.llm, "close", None):
@@ -500,6 +527,8 @@ class Analysis:
 
     async def _run(self) -> AnalysisReport:
         started, t0 = datetime.now(timezone.utc), time.monotonic()
+        if self.llm is not None:
+            tell("info", "Выделяем отдельные требования")
         self.deadline = asyncio.get_running_loop().time() + self.timeout
         o = self.options
         await self.stage("requirements_extraction", self.extract)
@@ -524,5 +553,5 @@ class Analysis:
 
 
 async def analyze(doc: Document, llm, options: AnalysisOptions | None = None, on_progress=None,
-                  timeout: float = 900, on_done=None) -> AnalysisReport:
-    return await Analysis(doc, llm, options or AnalysisOptions(), on_progress, timeout, on_done).run()
+                  timeout: float = 900, on_done=None, on_event=None) -> AnalysisReport:
+    return await Analysis(doc, llm, options or AnalysisOptions(), on_progress, timeout, on_done, on_event).run()

@@ -8,7 +8,17 @@ from ..errors import LLMError
 log = logging.getLogger("specguard.llm")
 ROLE = {"ExtractionOut": "light", "FixesOut": "light", "DuplicatesOut": "light", "ValidationOut": "validator"}  # остальные — main
 STAGE_MODELS: ContextVar[list[str] | None] = ContextVar("stage_models", default=None)
+EVENTS: ContextVar = ContextVar("events", default=None)  # журнал для пользователя: (вид, текст)
 FINDERS = {"ConflictsOut", "AtomicOut", "SetOut", "FintechOut"}
+
+
+def tell(kind: str, text: str) -> None:
+    if (emit := EVENTS.get()) is not None:
+        emit(kind, text)
+
+
+def short(model: str) -> str:
+    return model.rsplit("/", 1)[-1].removesuffix(":free")
 
 
 class ModelRouter:
@@ -79,6 +89,7 @@ class ModelRouter:
                 self._busy_until[name] = time.monotonic() + self.cooldown
                 log.warning("%s недоступна для %s: %s", name, schema.__name__, e)
                 last = LLMError(f"{name}: {e}", can_switch=True)
+                tell("warn", f"Модель {short(name)} не ответила, запрос передан другой")
                 continue
             self._record(name, schema)
             if self.cache:
