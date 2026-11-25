@@ -1,4 +1,4 @@
-import { Check, Circle, CircleAlert, LoaderCircle } from 'lucide-react'
+import { Banknote, Check, CircleAlert, FileText, GitCompareArrows, ListChecks, LoaderCircle, PenLine, Regex, Scissors, SearchCheck, type LucideIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api'
@@ -15,6 +15,10 @@ const HINT: Record<string, string> = {
   evidence_validation: 'Вторая модель пытается опровергнуть замечания',
   fix_generation: 'Пишем формулировки исправлений',
   report_generation: 'Собираем отчёт',
+}
+const ICON: Record<string, LucideIcon> = {
+  requirements_extraction: Scissors, structure_rules: Regex, atomic_analysis: ListChecks, consistency_analysis: GitCompareArrows,
+  fintech_analysis: Banknote, evidence_validation: SearchCheck, fix_generation: PenLine, report_generation: FileText,
 }
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 
@@ -82,27 +86,33 @@ export function AnalysisPage() {
         {error && <p className="msg bad" role="alert">{error} Пробуем подключиться снова.</p>}
       </section>
       <section className="panel build"><Mosaic seed={id} cols={16} rows={2} shown={(info?.progress ?? 0) / 100} className="cover" /></section>
-      <section className="panel">
+      <section className="panel stages">
         <header className="panel-head"><h2>Этапы</h2><span className="dim">{info?.done.length ?? 0} из {stages.length}</span></header>
         <ol className="steps">{stages.map((s) => {
           const done = info?.done.includes(s.id), active = info?.active.includes(s.id)
           const from = info?.started?.[s.id], to = info?.finished?.[s.id]
+          const Icon = ICON[s.id] ?? FileText
+          const time = done && from && to ? clock((Date.parse(to) - Date.parse(from)) / 1000) : active && from ? clock(since(from)) : ''
           return <li key={s.id} className={done ? 'done' : active ? 'now' : ''}>
-            {done ? <Check aria-label="готово" /> : active ? <LoaderCircle className="spin" aria-label="выполняется" /> : <Circle aria-label="ожидает" />}
+            <i className="box">{done ? <Check aria-hidden /> : active ? <LoaderCircle className="spin" aria-hidden /> : null}<span className="sr">{done ? 'готово' : active ? 'выполняется' : 'ожидает'}</span></i>
             <span><b>{s.title}</b><span>{HINT[s.id]}</span></span>
-            <time>{done && from && to ? clock((Date.parse(to) - Date.parse(from)) / 1000) : active ? clock(since(from)) : ''}</time></li>
+            <span className="step-side"><Icon aria-hidden />{time && <time>{time}</time>}</span></li>
         })}</ol>
       </section>
+      <div className="side">
       <section className="panel">
         <header className="panel-head"><h2>Что происходит</h2></header>
         <ol className="log">{[...log].reverse().map((e, i) => <li key={log.length - i} className={e.kind}><time>{clock(Math.max(0, (Date.parse(e.time) - Date.parse(info!.created_at)) / 1000))}</time>{e.text}</li>)}
-          {log.length === 0 && <li>Ждём первый шаг…</li>}</ol>
+          </ol>
+        {log.length === 0 && <p className="pad dim">{info?.message || 'Ждём первый шаг…'}</p>}
       </section>
       <section className="panel">
-        <header className="panel-head"><h2>Найдено</h2><span className="dim">{found.length}, до перепроверки</span></header>
+        <header className="panel-head"><h2>Найдено</h2><span className="dim">{found.length || ''}</span></header>
         {found.length ? <ol className="found">{found.map((e, i) => <li key={i}>{e.text}</li>)}</ol>
-          : <p className="pad dim">Замечания появятся здесь по мере проверки. Часть из них отсеется при перепроверке.</p>}
+          : <p className="pad dim">Замечания появятся здесь по мере проверки.</p>}
+        {found.length > 0 && <p className="panel-foot">Часть отсеется при перепроверке.</p>}
       </section>
+      </div>
       <p className="panel panel-foot wide">Страницу можно закрыть: проверка продолжится, отчёт появится в списке.</p>
     </div>
   )
