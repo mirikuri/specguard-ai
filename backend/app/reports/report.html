@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Отчёт: {{ r.document_name }}</title>
+<style>
+:root{--ink:#14263b;--dim:#5b6b7d;--line:#d5dde5;--bg:#eef2f5;--crit:#a3182f;--high:#b4530a;--med:#7a6300;--low:#4a6076}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI",system-ui,sans-serif}
+main{max-width:1040px;margin:auto;padding:32px 16px;background:#fff}
+h1{font-size:28px;line-height:1.2}h2{margin-top:48px;font-size:22px}h3{margin:28px 0 8px;font-size:17px}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:12px 0}th,td{text-align:left;vertical-align:top;padding:6px 10px;border-bottom:1px solid var(--line)}
+.wrap{overflow-x:auto}blockquote{margin:8px 0;padding:8px 14px;background:var(--bg);white-space:pre-wrap;overflow-wrap:anywhere}
+.warn{background:#fdeedd;padding:12px 16px}.dim{color:var(--dim);font-size:14px}.critical{color:var(--crit)}.high{color:var(--high)}.medium{color:var(--med)}.low,.info{color:var(--low)}
+.fail{color:var(--crit);font-weight:600}.needs_review{color:var(--high)}article{border-top:1px solid var(--line);break-inside:avoid}
+</style></head><body><main>
+<h1>Отчёт о проверке требований: {{ r.document_name }}</h1>
+{% if r.status != 'completed' %}<p class="warn"><b>Отчёт частичный.</b> Не все этапы выполнены, отсутствие замечаний не означает отсутствие дефектов.</p>{% endif %}
+<h2>Паспорт прогона</h2>
+<table>
+<tr><th>Документ</th><td>{{ r.document_name }}</td></tr><tr><th>Дата</th><td>{{ r.analyzed_at.strftime('%d.%m.%Y %H:%M:%S UTC') }}</td></tr>
+<tr><th>Модель</th><td>{{ r.model_name }}</td></tr><tr><th>Версия агента</th><td>{{ r.agent_version }}</td></tr>
+<tr><th>Статус</th><td>{{ L.REPORT_STATUS[r.status] }}</td></tr></table>
+<table><tr><th>Этап</th><th>Статус</th><th>Модель</th><th>Комментарий</th></tr>
+{% for s in r.stages %}<tr><td>{{ s.title }}</td><td>{{ L.STAGE_STATUS[s.status] }}</td><td>{{ s.models|join(', ') or 'без модели' }}</td><td>{{ s.message }}</td></tr>{% endfor %}</table>
+<h2>Как агент нарезал требования</h2>
+<div class="wrap"><table><tr><th>ID в отчёте</th><th>ID в документе</th><th>Краткая формулировка</th><th>Тип</th></tr>
+{% for x in r.requirements %}<tr><td>{{ x.id }}</td><td>{{ x.source_id or 'нет, присвоен агентом' }}</td><td>{{ x.summary }}</td><td>{{ L.TYPE[x.requirement_type] }}</td></tr>{% endfor %}</table></div>
+<h2>Проверка каждого требования</h2>
+{% for x in r.requirements %}<article><h3>{{ x.id }}{% if x.source_id %} ({{ x.source_id }}){% endif %}</h3>
+<div class="dim">{{ x.section }}, строка {{ line(x.source_start) }}{% if x.page %}, страница {{ x.page }}{% endif %}</div><blockquote>{{ x.text }}</blockquote>
+<table>{% for c in x.checks %}<tr><td>{{ ATOMIC.get(c.criterion, c.criterion) }}</td><td class="{{ c.status }}">{{ L.CHECK[c.status] }}</td><td>{{ c.explanation }}</td></tr>{% endfor %}</table></article>{% endfor %}
+<h2>Проверка всего набора</h2>
+<table>{% for c in r.set_checks %}<tr><td>{{ SET.get(c.criterion, c.criterion) }}</td><td class="{{ c.status }}">{{ L.CHECK[c.status] }}</td><td>{{ c.explanation }}</td></tr>{% endfor %}</table>
+<h2>Замечания</h2>
+{% for f in r.findings %}<article><h3>{{ f.id }}. {{ f.title }}</h3>
+<div><b class="{{ f.severity }}">{{ L.SEVERITY[f.severity] }}</b>, {{ L.FINDING_STATUS[f.status]|lower }}, уверенность {{ '%d'|format(f.confidence*100) }}%, {{ L.CATEGORY[f.category] }}, источник: {{ L.SOURCE[f.source] }}</div>
+{% for e in f.evidence %}<div class="dim">{{ e.requirement_id or 'Фрагмент' }}, строка {{ line(e.start) }}{% if e.page %}, страница {{ e.page }}{% endif %}, {{ e.section }}</div><blockquote>{{ e.quote }}</blockquote>{% endfor %}
+<p><b>Почему это проблема.</b> {{ f.explanation }}</p><p><b>Последствия.</b> {{ f.impact }}</p><p><b>Рекомендация.</b> {{ f.recommendation }}</p>
+{% if f.validation_note %}<p><b>Проверка замечания.</b> {{ f.validation_note }}</p>{% endif %}
+{% if f.fix %}<p><b>Вариант исправления.</b> {{ f.fix.proposed_text }}</p><p><b>Критерий приёмки.</b> {{ f.fix.acceptance_criteria }}</p>
+{% if f.fix.clarification_required %}<p><b>Вопрос аналитику.</b> {{ f.fix.clarification_question }}</p>{% endif %}{% endif %}</article>{% else %}<p>Замечаний нет.</p>{% endfor %}
+<h2>Сводка</h2>
+<table><tr><td>Требований</td><td>{{ r.summary.requirements_count }}</td></tr><tr><td>Требований с нарушениями</td><td>{{ r.summary.requirements_with_violations }}</td></tr>
+<tr><td>Подтверждённых нарушений</td><td>{{ r.summary.confirmed_count }}</td></tr><tr><td>Вопросов на уточнение</td><td>{{ r.summary.needs_review_count }}</td></tr>
+<tr><td>Readiness Score</td><td>{% if r.readiness.score is none %}не рассчитан{% else %}{{ r.readiness.score }} из 100 ({{ L.READINESS[r.readiness.status] }}){% endif %}, покрытие {{ r.readiness.coverage }}%</td></tr>
+{% for title, items in critical.items() %}<tr><td>{{ title }}</td><td>{% for f in items %}{{ f.id }} {{ f.title }}{% if not loop.last %}; {% endif %}{% else %}не обнаружены{% endfor %}</td></tr>{% endfor %}</table>
+<h2>Итог</h2><p>{{ r.verdict.text }}</p>
+{% if r.verdict.priorities %}<ol>{% for p in r.verdict.priorities %}<li>{{ p }}</li>{% endfor %}</ol>{% endif %}
+</main></body></html>

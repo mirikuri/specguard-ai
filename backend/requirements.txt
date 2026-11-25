@@ -1,0 +1,2 @@
+# Зависимости описаны в pyproject.toml; установка из корня репозитория: pip install -r backend/requirements.txt
+-e .
