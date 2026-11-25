@@ -11,13 +11,14 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .config import ROOT, agent_version, get_settings
+from .config import DATA_DIR, ROOT, agent_version, get_settings
 from .errors import DocumentError, SpecGuardError
 from .llm.openrouter import make_llm
 from .models import AnalysisOptions
 from .parser import parse_document
 from .pipeline import STAGES, analyze
 from .reports import MEDIA, render
+from .store import AnalysisStore
 
 log = logging.getLogger("specguard.api")
 DIST = ROOT / "frontend" / "dist"
@@ -44,7 +45,8 @@ def create_app() -> FastAPI:
     app = FastAPI(title="SpecGuard AI", version=settings.agent_version, docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver", settings.backend_host])
     documents: dict[str, dict] = {}
-    analyses: dict[str, dict] = {}
+    store = AnalysisStore(DATA_DIR)
+    analyses: dict[str, dict] = store.load()
     tasks: set[asyncio.Task] = set()
     api = APIRouter(prefix="/api/v1")
 
@@ -58,7 +60,7 @@ def create_app() -> FastAPI:
 
     def get_analysis(aid):
         if aid not in analyses:
-            raise HTTPException(404, "Анализ не найден. После перезапуска сервера результаты не сохраняются.")
+            raise HTTPException(404, "Проверка не найдена.")
         return analyses[aid]
 
     def info(a):
@@ -97,7 +99,12 @@ def create_app() -> FastAPI:
 
         try:
             report = await analyze(doc, llm, options, progress, settings.analysis_timeout, done)
-            a.update(report=report, status=report.status, stage="", progress=100, message="Отчёт готов")
+            ready = dict(report=report, status=report.status, stage="", progress=100, message="Отчёт готов")
+            try:
+                await asyncio.to_thread(store.save, {**a, **ready})
+            except OSError:
+                log.exception("Отчёт не сохранён на диск")
+            a.update(ready)
         except SpecGuardError as e:
             a.update(status="failed", message=str(e))
         except Exception:
@@ -110,12 +117,12 @@ def create_app() -> FastAPI:
             raise HTTPException(404, "Документ не найден. Загрузите его ещё раз.")
         llm = None if body.rules_only else make_llm(settings)
         if llm is None and not body.rules_only:
-            raise HTTPException(503, "Модель не подключена: задайте OPENROUTER_API_KEY в файле .env и перезапустите сервер.")
+            raise HTTPException(503, "Модель не подключена: администратору нужно задать OPENROUTER_API_KEY.")
         doc = documents[body.document_id]["doc"]
         aid = "analysis_" + secrets.token_urlsafe(9)
         a = {"analysis_id": aid, "document_name": doc.name, "status": "queued", "stage": "", "progress": 0, "message": "В очереди",
              "done": [], "active": [], "created_at": datetime.now(timezone.utc).isoformat(), "report": None}
-        put(analyses, aid, a)
+        analyses[aid] = a
         task = asyncio.create_task(work(a, doc, llm, body.options))
         tasks.add(task)
         task.add_done_callback(tasks.discard)
@@ -128,6 +135,13 @@ def create_app() -> FastAPI:
     @api.get("/analyses/{aid}")
     async def status(aid: str):
         return info(get_analysis(aid))
+
+    @api.delete("/analyses/{aid}", status_code=204)
+    async def delete(aid: str):
+        if get_analysis(aid)["status"] in ("queued", "running"):
+            raise HTTPException(409, "Проверка ещё идёт.")
+        store.delete(aid)
+        del analyses[aid]
 
     def ready_report(aid):
         a = get_analysis(aid)

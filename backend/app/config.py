@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parents[2]
 CACHE_DIR = ROOT / ".cache" / "llm"
+DATA_DIR = ROOT / ".data" / "analyses"
 
 
 class Settings(BaseSettings):

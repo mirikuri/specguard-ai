@@ -48,3 +48,10 @@ def organizer_doc():
     if not path.exists():
         pytest.skip("выданный документ не входит в репозиторий")
     return parse_document("requirements.md", path.read_bytes())
+
+
+@pytest.fixture(autouse=True)
+def private_data_dir(tmp_path, monkeypatch):
+    """Тесты не трогают сохранённые проверки пользователя."""
+    from app import main
+    monkeypatch.setattr(main, "DATA_DIR", tmp_path / "data")
