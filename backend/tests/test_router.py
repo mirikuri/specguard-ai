@@ -124,3 +124,13 @@ def test_second_sweep_after_overload():
     c["main"].generate = recover
     ask(r, FintechOut)
     assert r.used == ["main"]
+
+
+def test_report_warns_when_weaker_models_did_the_search(doc):
+    dead = LLMError("429", can_switch=True, exhausted=True)
+    c, r = router(main=dead, check=dead)
+    rep = asyncio.run(analyze(doc, r))
+    assert "запасн" in rep.verdict.text
+    assert rep.readiness.status != "ready"
+    _, ok = router()
+    assert "запасн" not in asyncio.run(analyze(doc, ok)).verdict.text

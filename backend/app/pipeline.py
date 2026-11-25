@@ -425,6 +425,9 @@ class Analysis:
                 available.add("completeness")
         ready = readiness(self.requirements, self.findings, available, status)
 
+        if ready.status == "ready" and getattr(self.llm, "degraded", []):
+            ready.status = "ready_with_conditions"
+
         count = lambda **kw: sum(all(getattr(f, k) == v for k, v in kw.items()) for f in self.findings)
         violated = {i for f in self.findings if f.status == "confirmed" for i in f.requirement_ids}
         summary = Summary(
@@ -457,6 +460,9 @@ class Analysis:
         if status != "completed":
             bad = [s.title for s in self.stages if s.status in ("failed", "partial")]
             text += " Отчёт частичный. Не выполнено полностью: " + ", ".join(bad) + "."
+        if weak := getattr(self.llm, "degraded", []):
+            text += (f" Часть поиска выполнили запасные модели ({', '.join(weak)}): они пропускают больше дефектов,"
+                     " поэтому оценка может быть завышена. Повторите прогон при доступной основной модели.")
         top = [f for f in confirmed if f.severity in ("critical", "high")] or confirmed
         return Verdict(development=dev, testing=test, text=text,
                        priorities=[f"{f.id} «{f.title}»: {f.recommendation}" for f in top[:7]])

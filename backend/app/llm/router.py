@@ -25,6 +25,11 @@ class ModelRouter:
         self.cooldown = 180.0
         self.pause = 20.0
 
+    @property
+    def degraded(self) -> list[str]:
+        """Модели, которые искали дефекты вместо основной и проверяющей."""
+        return sorted(self._finders - {self.roles["main"], self.roles["validator"]})
+
     def _chain(self, role: str) -> list[str]:
         first = self.roles[role]
         chain = [first, *(m for m in self.clients if m != first)]
