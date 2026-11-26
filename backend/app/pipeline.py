@@ -470,7 +470,7 @@ class Analysis:
         for f in sorted(self.findings, key=lambda f: (SEVERITY_ORDER[f.severity], not blocks(f), f.id)):
             text = f.fix.clarification_question.strip() if f.fix and f.fix.clarification_required else ""
             if not text and (f.status == "needs_review" or f.fix and f.fix.clarification_required):
-                text = f"{f.title.rstrip('. ')}. {f.recommendation}"
+                text = f"Подтверждаете замечание «{f.title.rstrip('. ')}»? Если да: {f.recommendation.strip()}"
             key = " ".join(text.lower().split())
             if q := seen.get(key):
                 q.finding_ids.append(f.id)

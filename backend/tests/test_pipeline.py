@@ -229,6 +229,7 @@ def test_open_conflict_reaches_priorities_and_questions(doc):
     assert any(p.startswith(f.id + " ") and "Требует решения" in p for p in r.verdict.priorities)
     q = r.questions[0]
     assert q.finding_ids == [f.id] and q.severity == "high" and q.requirement_ids == ["REQ-001", "REQ-002"]
+    assert q.text.startswith("Подтверждаете замечание «") and "?" in q.text
 
 
 def test_analyst_question_text_comes_from_fix_and_is_not_repeated(doc):
@@ -245,7 +246,8 @@ def test_analyst_question_text_comes_from_fix_and_is_not_repeated(doc):
 
 def test_safe_fix_of_confirmed_finding_asks_nothing(doc):
     r = run(doc, FakeLLM())
-    assert not {q.finding_id for q in r.questions} & {f.id for f in r.findings if f.status == "confirmed"}
+    confirmed = {f.id for f in r.findings if f.status == "confirmed"}
+    assert confirmed and not {i for q in r.questions for i in q.finding_ids} & confirmed
 
 
 @pytest.mark.parametrize("over", [dict(severity="low"), dict(answered_elsewhere=True)])

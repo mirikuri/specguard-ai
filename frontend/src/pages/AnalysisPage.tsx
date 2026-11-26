@@ -32,7 +32,7 @@ export function AnalysisPage() {
   const [stopping, setStopping] = useState(false)
 
   useEffect(() => {
-    let stop = false, timer = 0, misses = 0
+    let stop = false, timer = 0, misses = 0, reportMisses = 0
     setInfo(null); setReport(null); setError(''); setStopping(false)
     api.health().then((h) => !stop && setStages(h.stages)).catch(() => {})
     async function poll() {
@@ -41,9 +41,18 @@ export function AnalysisPage() {
         if (stop) return
         misses = 0
         if (next.status === 'completed' || next.status === 'partial') {
-          const r = await api.report(id) // до смены статуса: иначе у готовой проверки мелькает ход выполнения
-          if (!stop) setReport(r)
-          return
+          // до смены статуса: иначе у готовой проверки мелькает ход выполнения
+          try {
+            const r = await api.report(id)
+            if (!stop) setReport(r)
+            return
+          } catch (e) {
+            if (stop) return
+            // сбой загрузки готового отчёта — не «проверка не выполнена»: тихо повторяем, ошибку показываем в конце
+            if (++reportMisses > 5) return setError(`Проверка завершена, но отчёт не загрузился: ${(e as Error).message}`)
+            timer = window.setTimeout(poll, 1000)
+            return
+          }
         }
         setInfo(next)
         setError('')
@@ -67,9 +76,10 @@ export function AnalysisPage() {
     return (
       <div className="page"><div className="panel pad fail-box">
         <CircleAlert aria-hidden />
-        <h1>{info?.message.startsWith('Отменено') ? 'Проверка отменена' : 'Проверка не выполнена'}</h1>
+        <h1>{info?.message.startsWith('Отменено') ? 'Проверка отменена' : error.startsWith('Проверка завершена') ? 'Отчёт не загрузился' : 'Проверка не выполнена'}</h1>
         {!info?.message.startsWith('Отменено') && <p role="alert">{info?.message ?? error}</p>}
-        <p className="dim">{info ? 'Отчёт не создан. Загрузите документ ещё раз, чтобы повторить.' : 'Возможно, проверка была удалена.'}</p>
+        <p className="dim">{info ? 'Отчёт не создан. Загрузите документ ещё раз, чтобы повторить.'
+          : error.startsWith('Проверка завершена') ? 'Обновите страницу, чтобы загрузить отчёт ещё раз.' : 'Возможно, проверка была удалена.'}</p>
         <Link className="btn primary" to="/">К проверкам</Link>
       </div></div>
     )
