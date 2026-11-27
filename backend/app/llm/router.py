@@ -4,6 +4,7 @@ from contextvars import ContextVar
 import time
 
 from ..errors import LLMError
+from .schemas import foreign_text
 
 log = logging.getLogger("specguard.llm")
 ROLE = {"ExtractionOut": "light", "FixesOut": "light", "DuplicatesOut": "light", "ValidationOut": "validator"}  # остальные — main
@@ -72,7 +73,7 @@ class ModelRouter:
         chain = self._chain(ROLE.get(schema.__name__, "main"))
         if self.cache:  # сначала ищем готовый ответ любой модели, чтобы не тратить лимит
             for name in chain:
-                if (out := self.cache.get(name, prompt, schema)) is not None:
+                if (out := self.cache.get(name, prompt, schema)) is not None and foreign_text(out) is None:
                     self._record(name, schema, " (кеш)")
                     return out
         last = LLMError("Лимиты всех настроенных моделей исчерпаны.")

@@ -11,6 +11,10 @@ from pydantic import BaseModel, ValidationError
 from ..errors import LLMError
 from ..prompts_loader import load_prompt
 from .router import ModelRouter
+from .schemas import foreign_text
+
+RUSSIAN = ("\n\nПредыдущий ответ содержал текст не на русском языке. Все поля, кроме цитат и идентификаторов, "
+           "пиши только по-русски.")
 
 log = logging.getLogger("specguard.llm")
 BASE = "https://openrouter.ai/api/v1"
@@ -165,13 +169,13 @@ class OpenRouterClient:
 
     async def generate[T: BaseModel](self, prompt: str, schema: type[T], deadline: float | None = None) -> T:
         loop = asyncio.get_running_loop()
-        reason, attempt = "", 0
+        reason, attempt, ask = "", 0, prompt
         while True:
             if deadline is not None and loop.time() >= deadline:
                 raise LLMError("Истекло общее время анализа.")
             delay = self.backoff * 2 ** attempt
             try:
-                body = await self._body(prompt, schema)
+                body = await self._body(ask, schema)
                 status, data = await self.api.post(body, self.timeout, deadline)
                 data = data if isinstance(data, dict) else {}
                 err = data.get("error")
@@ -192,7 +196,11 @@ class OpenRouterClient:
                     elif not text:
                         reason = "модель вернула пустой ответ"
                     else:
-                        return schema.model_validate_json(extract_json(text))
+                        out = schema.model_validate_json(extract_json(text))
+                        if (bad := foreign_text(out)) is None:
+                            return out
+                        reason = f"ответ не на русском языке («{bad[:40]}…»)"
+                        ask = prompt + RUSSIAN
             except ValidationError:
                 reason = "ответ модели не соответствует схеме"
             except TimeoutError:

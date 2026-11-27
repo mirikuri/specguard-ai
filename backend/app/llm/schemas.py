@@ -1,4 +1,5 @@
 """Схемы ответов модели. Без значений по умолчанию: так их принимает structured output."""
+import re
 from typing import Literal
 
 from pydantic import BaseModel
@@ -140,3 +141,32 @@ class RawFix(BaseModel):
 
 class FixesOut(BaseModel):
     fixes: list[RawFix]
+
+
+# Поля, которые модель пишет своими словами и которые попадают в отчёт. Цитаты, ID и предложенный текст
+# требования сюда не входят: они могут законно состоять из латиницы (поля API, URL).
+PROSE = {"summary", "title", "explanation", "impact", "recommendation", "scenario", "by_first", "by_second",
+         "unanswered", "counterargument", "reason", "rationale", "changes", "acceptance_criteria",
+         "clarification_question"}
+_LAT, _CYR = re.compile(r"[A-Za-z]"), re.compile(r"[А-Яа-яЁё]")
+
+
+def foreign_text(out: BaseModel) -> str | None:
+    """Первое прозаическое поле, где латиница преобладает: модель ответила не по-русски.
+
+    Короткие строки не проверяем: «GET /saveLimit» или «HTTP 404» — нормальный текст замечания."""
+    def walk(x, key=None):
+        if isinstance(x, BaseModel):
+            for k in type(x).model_fields:
+                if (hit := walk(getattr(x, k), k)) is not None:
+                    return hit
+        elif isinstance(x, list):
+            for v in x:
+                if (hit := walk(v, key)) is not None:
+                    return hit
+        elif isinstance(x, str) and key in PROSE:
+            lat, cyr = len(_LAT.findall(x)), len(_CYR.findall(x))
+            if lat >= 20 and lat > cyr:
+                return x
+        return None
+    return walk(out)

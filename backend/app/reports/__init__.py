@@ -131,7 +131,7 @@ def to_markdown(r: AnalysisReport) -> str:
         ("Требований", s.requirements_count), ("Требований с подтверждёнными нарушениями", s.requirements_with_violations),
         ("Подтверждённых нарушений", s.confirmed_count), ("Замечаний, требующих решения", s.needs_review_count), ("Вопросов аналитику", len(r.questions)),
         ("Отклонено при валидации", s.rejected_count),
-        ("Критичных / высоких / средних / низких", f"{s.critical_count} / {s.high_count} / {s.medium_count} / {s.low_count}"),
+        ("Подтверждённых по серьёзности: критичных / высоких / средних / низких", f"{s.critical_count} / {s.high_count} / {s.medium_count} / {s.low_count}"),
         ("Readiness Score", "не рассчитан" if r.readiness.score is None else f"{r.readiness.score} из 100 ({L.READINESS[r.readiness.status]})"),
         ("Покрытие оценки", f"{r.readiness.coverage}%")])
     table(["Измерение", "Вес", "Оценка"], [(d.title, f"{d.weight:.0%}", "не оценено" if d.score is None else d.score) for d in r.readiness.dimensions])

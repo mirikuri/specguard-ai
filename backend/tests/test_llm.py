@@ -294,3 +294,32 @@ def test_silence_before_first_chunk_switches_model():
     s, c = stream_client(httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body()), timeout=.1)
     with pytest.raises(LLMError, match="не присылала"):
         asyncio.run(c.generate("p", FindingsOut))
+
+
+def finding(title, explanation):
+    f = {"title": title, "category": "api_design", "criterion": "correct", "severity": "high", "confidence": .9,
+         "evidence": [{"requirement_id": "REQ-001", "quote": "GET /saveLimit"}], "explanation": explanation,
+         "impact": "Сохранение через GET кешируется прокси.", "recommendation": "Использовать PUT.", "is_gap": False}
+    return json.dumps({"findings": [f]}, ensure_ascii=False)
+
+
+def test_english_answer_is_retried_with_reminder():
+    en = finding("GET used for state-changing operation", "The method saves the threshold but uses GET.")
+    ru = finding("Метод GET меняет данные", "Метод GET /saveLimit сохраняет порог, хотя GET не должен менять состояние.")
+    s = Server(answer(en), answer(ru))
+    out = asyncio.run(client(s, retries=1).generate("p", FindingsOut))
+    assert out.findings[0].title == "Метод GET меняет данные"
+    assert "не на русском" in s.bodies[1]["messages"][1]["content"]
+
+
+def test_english_on_every_attempt_switches_model():
+    en = finding("Missing acceptance criteria", "Acceptance criteria are missing for refund handling rules.")
+    s = Server(answer(en), answer(en))
+    with pytest.raises(LLMError, match="не на русском") as e:
+        asyncio.run(client(s, retries=1).generate("p", FindingsOut))
+    assert e.value.can_switch
+
+
+def test_russian_with_technical_terms_is_accepted():
+    ok = finding("Код 201 не описан", "В Response указан HTTP 201 Created, но поля ответа для него не описаны.")
+    assert asyncio.run(client(Server(answer(ok))).generate("p", FindingsOut)).findings
