@@ -323,3 +323,13 @@ def test_english_on_every_attempt_switches_model():
 def test_russian_with_technical_terms_is_accepted():
     ok = finding("Код 201 не описан", "В Response указан HTTP 201 Created, но поля ответа для него не описаны.")
     assert asyncio.run(client(Server(answer(ok))).generate("p", FindingsOut)).findings
+
+
+def test_api_table_summary_is_not_foreign():
+    from app.llm.schemas import ExtractedRequirement, ExtractionOut, foreign_text
+    rows = ["Request URL: Dev /alerts/saveLimit, Prod: не задан",
+            "REST API GET /alerts/saveLimit: авторизация Bearer токен",
+            'curl -G "$BASE/alerts/saveLimit" -H "Authorization: Bearer $TOKEN" --data \'cardId=demo-42\'']
+    out = ExtractionOut(requirements=[ExtractedRequirement(segment_ids=["S1"], summary=r, requirement_type="functional",
+                                                           type_confidence=0.9) for r in rows])
+    assert foreign_text(out) is None

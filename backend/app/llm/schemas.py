@@ -149,6 +149,13 @@ PROSE = {"summary", "title", "explanation", "impact", "recommendation", "scenari
          "unanswered", "counterargument", "reason", "rationale", "changes", "acceptance_criteria",
          "clarification_question"}
 _LAT, _CYR = re.compile(r"[A-Za-z]"), re.compile(r"[А-Яа-яЁё]")
+# Код, кавычки, пути, URL, флаги, имена полей (saveLimit, card_id), аббревиатуры (GET, HTTP) — не английская речь
+_TECH = re.compile(r"`[^`]*`|\"[^\"]*\"|'[^']*'|\S*[/\\$=_.:@#{}<>\[\]]\S*|-{1,2}\w+|\b\w*\d\w*\b"
+                   r"|\b[a-z]+[A-Z]\w*\b|\b[A-Z]{2,}s?\b")
+
+
+def _english_letters(text: str) -> int:
+    return len(_LAT.findall(_TECH.sub(" ", text)))
 
 
 def foreign_text(out: BaseModel) -> str | None:
@@ -165,7 +172,7 @@ def foreign_text(out: BaseModel) -> str | None:
                 if (hit := walk(v, key)) is not None:
                     return hit
         elif isinstance(x, str) and key in PROSE:
-            lat, cyr = len(_LAT.findall(x)), len(_CYR.findall(x))
+            lat, cyr = _english_letters(x), len(_CYR.findall(x))
             if lat >= 20 and lat > cyr:
                 return x
         return None
