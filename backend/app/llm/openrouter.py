@@ -106,13 +106,40 @@ class OpenRouter:
                     raise LLMError("Истекло общее время анализа в очереди запросов.")
                 await asyncio.sleep(wait)
 
-    async def post(self, body: dict, timeout: float, deadline: float | None) -> httpx.Response:
+    async def post(self, body: dict, idle: float, deadline: float | None) -> tuple[int, object]:
+        """Ответ потоком: ждём не дольше idle секунд от последнего полученного фрагмента, а не весь ответ целиком.
+
+        Медленная, но работающая модель доживает до конца ответа; зависшая обрывается. Комментарии-заглушки
+        OpenRouter («processing») прогрессом не считаются. Ошибку до начала потока OpenRouter присылает обычным JSON."""
         self._bind()
+        loop = asyncio.get_running_loop()
+        limit = lambda: loop.time() + idle if deadline is None else min(loop.time() + idle, deadline)
         async with self._slots:
             await self._wait_turn(deadline)
-            left = timeout if deadline is None else min(timeout, deadline - asyncio.get_running_loop().time())
-            async with asyncio.timeout(max(left, 0)):
-                return await self._http.post(BASE + "/chat/completions", json=body, timeout=None)
+            async with asyncio.timeout_at(limit()) as clock:
+                async with self._http.stream("POST", BASE + "/chat/completions", json={**body, "stream": True},
+                                             timeout=None) as r:
+                    if "text/event-stream" not in r.headers.get("content-type", ""):
+                        await r.aread()
+                        return r.status_code, r.json()
+                    text, finish = [], None
+                    async for line in r.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        payload = line[5:].strip()
+                        if payload == "[DONE]":
+                            break
+                        chunk = json.loads(payload)
+                        if not isinstance(chunk, dict):
+                            continue
+                        clock.reschedule(limit())
+                        if chunk.get("error"):
+                            return r.status_code, {"error": chunk["error"]}
+                        for choice in chunk.get("choices") or []:
+                            text.append((choice.get("delta") or {}).get("content") or "")
+                            finish = choice.get("finish_reason") or finish
+                    return r.status_code, {"choices": [{"message": {"content": "".join(text) or None},
+                                                        "finish_reason": finish}]}
 
 
 class OpenRouterClient:
@@ -145,13 +172,12 @@ class OpenRouterClient:
             delay = self.backoff * 2 ** attempt
             try:
                 body = await self._body(prompt, schema)
-                r = await self.api.post(body, self.timeout, deadline)
-                data = r.json()
+                status, data = await self.api.post(body, self.timeout, deadline)
                 data = data if isinstance(data, dict) else {}
                 err = data.get("error")
-                if r.status_code != 200 or err:
+                if status != 200 or err:
                     err = err if isinstance(err, dict) else {}
-                    code = r.status_code if r.status_code != 200 else err.get("code")
+                    code = status if status != 200 else err.get("code")
                     if code == 400 and ("response_format" in body or "reasoning" in body):
                         self._plain.add(schema.__name__)
                         continue
@@ -170,7 +196,9 @@ class OpenRouterClient:
             except ValidationError:
                 reason = "ответ модели не соответствует схеме"
             except TimeoutError:
-                reason = "превышено время ожидания модели"
+                if deadline is not None and loop.time() >= deadline:
+                    raise LLMError("Истекло общее время анализа.") from None
+                reason = f"модель не присылала ответ {self.timeout:g} с"
                 attempt = self.max_retries  # ждать ещё столько же нет смысла, пробуем другую модель
             except httpx.HTTPError as e:  # текст ошибки не логируем: в нём может быть ключ
                 reason = f"ошибка соединения с OpenRouter ({type(e).__name__})"

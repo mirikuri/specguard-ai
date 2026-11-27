@@ -176,6 +176,59 @@ def test_deadline():
         asyncio.run(go())
 
 
+def sse(*chunks, gap=0.0, stall=None):
+    """Потоковый ответ OpenRouter: строки по одной с паузой gap; stall — пауза перед последней строкой."""
+    lines = [": OPENROUTER PROCESSING"] + [f"data: {json.dumps(c)}" for c in chunks] + ["data: [DONE]"]
+
+    async def body():
+        for n, line in enumerate(lines):
+            await asyncio.sleep(stall if stall and n == len(lines) - 1 else gap)
+            yield (line + "\n\n").encode()
+    return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body())
+
+
+def delta(text, finish=None):
+    return {"choices": [{"delta": {"content": text}, "finish_reason": finish}]}
+
+
+def stream_client(*answers, timeout):
+    s = Server(*answers)
+    return s, OpenRouterClient(OpenRouter("k", transport=httpx.MockTransport(s)), "m", timeout=timeout, max_retries=0, backoff=0)
+
+
+def test_stream_is_assembled_and_requested():
+    s, c = stream_client(sse({"choices": [{"delta": {"reasoning": "думаю"}}]}, delta('{"find'), delta('ings":[]}', "stop")), timeout=5)
+    assert asyncio.run(c.generate("p", FindingsOut)).findings == []
+    assert s.bodies[0]["stream"] is True
+
+
+def test_slow_but_steady_stream_outlives_idle_timeout():
+    """Весь ответ идёт дольше таймаута, но фрагменты приходят чаще: модель не обрывается."""
+    parts = [delta(ch) for ch in OK[:-1]] + [delta(OK[-1], "stop")]
+    s, c = stream_client(sse(*parts, gap=.02), timeout=.15)
+    assert asyncio.run(c.generate("p", FindingsOut)).findings == []
+
+
+def test_stalled_stream_switches_model():
+    s, c = stream_client(sse(delta('{"findings":'), delta("[]}", "stop"), stall=.5), timeout=.1)
+    with pytest.raises(LLMError, match="не присылала") as e:
+        asyncio.run(c.generate("p", FindingsOut))
+    assert e.value.can_switch
+
+
+def test_error_inside_stream():
+    s, c = stream_client(sse(delta('{"fi'), {"error": {"code": 429, "message": "upstream"}, "choices": []}), timeout=5)
+    with pytest.raises(LLMError, match="429") as e:
+        asyncio.run(c.generate("p", FindingsOut))
+    assert e.value.can_switch
+
+
+def test_stream_cut_by_length_is_error():
+    s, c = stream_client(sse(delta('{"findings":[', "length")), timeout=5)
+    with pytest.raises(LLMError, match="обрезан"):
+        asyncio.run(c.generate("p", FindingsOut))
+
+
 def test_concurrency_is_shared_between_models():
     s = Server(*[answer(OK) for _ in range(10)], delay=.01)
     api = OpenRouter("k", transport=httpx.MockTransport(s), concurrency=3)
@@ -230,3 +283,14 @@ def test_api_survives_separate_event_loops():
     c = client(Server(answer(OK), answer(OK)))
     asyncio.run(c.generate("p", FindingsOut))
     asyncio.run(c.generate("p", FindingsOut))
+
+
+def test_silence_before_first_chunk_switches_model():
+    """Заголовки пришли, а данных нет дольше таймаута простоя: обрываем, а не ждём бесконечно."""
+    async def body():
+        yield b": OPENROUTER PROCESSING\n\n"
+        await asyncio.sleep(.5)
+        yield (f"data: {json.dumps(delta(OK, 'stop'))}\n\ndata: [DONE]\n\n").encode()
+    s, c = stream_client(httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body()), timeout=.1)
+    with pytest.raises(LLMError, match="не присылала"):
+        asyncio.run(c.generate("p", FindingsOut))

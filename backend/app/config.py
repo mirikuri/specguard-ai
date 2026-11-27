@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     agent_version: str = "0.1.0"
     max_file_size_mb: int = 10
     llm_timeout: int = 90
-    analysis_timeout: int = 900
+    analysis_timeout: int = 1800
     max_retries: int = 1
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000

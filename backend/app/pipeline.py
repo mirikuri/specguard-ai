@@ -596,5 +596,5 @@ class Analysis:
 
 
 async def analyze(doc: Document, llm, options: AnalysisOptions | None = None, on_progress=None,
-                  timeout: float = 900, on_done=None, on_event=None) -> AnalysisReport:
+                  timeout: float = 1800, on_done=None, on_event=None) -> AnalysisReport:
     return await Analysis(doc, llm, options or AnalysisOptions(), on_progress, timeout, on_done, on_event).run()
