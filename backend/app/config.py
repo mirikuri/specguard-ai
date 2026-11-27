@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     llm_light_model: str = "nvidia/nemotron-3.5-super-vl:free"
     llm_validator_model: str = "nvidia/nemotron-3.5-super-vl:free"
     llm_fallback_models: str = "inclusionai/ling-3.2-flash:free,particle-ai/particle-1:free,google/gemma-4-31b-it:free"
+    # Gemini API (AI Studio): основной провайдер, если нет ключа OpenRouter или LLM_PROVIDER=gemini, иначе запасной
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_fallback_models: str = "gemini-2.5-flash-lite"
+    gemini_rpm: int = 10
+    llm_provider: str = "auto"  # auto | openrouter | gemini
     agent_version: str = "0.1.0"
     max_file_size_mb: int = 10
     llm_timeout: int = 90

@@ -226,10 +226,10 @@ class OpenRouterClient:
         if code == 403 and meta.get("reasons"):
             raise LLMError("Модель отказалась обрабатывать текст.", can_switch=True, exhausted=True)
         if code in ACCOUNT:
-            raise LLMError(f"OpenRouter отклонил запрос ({code}): {ACCOUNT[code]}.")
+            raise LLMError(f"OpenRouter отклонил запрос ({code}): {ACCOUNT[code]}.", provider=True)
         if code == 429:
             if re.search(r"per[-_ ]day|daily", str(err.get("message", "")), re.I):
-                raise LLMError("Исчерпан суточный лимит бесплатных запросов OpenRouter, он обновляется в 00:00 UTC.")
+                raise LLMError("Исчерпан суточный лимит бесплатных запросов OpenRouter, он обновляется в 00:00 UTC.", provider=True)
             raise LLMError("Модель перегружена (429).", can_switch=True)
         if code in TRANSIENT:
             return f"временная ошибка модели ({code})"
@@ -238,12 +238,32 @@ class OpenRouterClient:
 
 
 def make_llm(settings, cache=None) -> ModelRouter | None:
-    if not settings.openrouter_api_key:
+    """Модели OpenRouter и Gemini в одной цепочке. Порядок задаёт LLM_PROVIDER; при auto первым идёт OpenRouter.
+
+    Роли (основная, лёгкая, проверяющая) берутся у первого провайдера, второй даёт запасные модели."""
+    from .gemini import Gemini, GeminiClient
+
+    split = lambda v: [x.strip() for x in v.split(",") if x.strip()]
+    groups = {}
+    if settings.openrouter_api_key:
+        main = settings.llm_model
+        light, validator = settings.llm_light_model or main, settings.llm_validator_model or main
+        names = list(dict.fromkeys([main, validator, *split(settings.llm_fallback_models), light]))
+        api = OpenRouter(settings.openrouter_api_key)
+        clients = {n: OpenRouterClient(api, n, settings.llm_timeout, settings.max_retries) for n in names}
+        need = RUN_REQUESTS if any(n.endswith(":free") for n in (main, light, validator)) and not cache else 0
+        groups["openrouter"] = (api, clients, (main, light, validator), need)
+    if settings.gemini_api_key and settings.gemini_model:
+        names = list(dict.fromkeys([settings.gemini_model, *split(settings.gemini_fallback_models)]))
+        api = Gemini(settings.gemini_api_key, per_minute=settings.gemini_rpm)
+        api.models = names
+        clients = {n: GeminiClient(api, n, settings.llm_timeout, settings.max_retries) for n in names}
+        light = names[1] if len(names) > 1 else names[0]  # механические шаги — лёгкой модели
+        groups["gemini"] = (api, clients, (names[0], light, names[0]), 0)
+    if not groups:
         return None
-    main = settings.llm_model
-    light, validator = settings.llm_light_model or main, settings.llm_validator_model or main
-    names = list(dict.fromkeys(x.strip() for x in [main, validator, *settings.llm_fallback_models.split(","), light] if x.strip()))
-    api = OpenRouter(settings.openrouter_api_key)
-    clients = {n: OpenRouterClient(api, n, settings.llm_timeout, settings.max_retries) for n in names}
-    need = RUN_REQUESTS if any(n.endswith(":free") for n in (main, light, validator)) and not cache else 0
-    return ModelRouter(clients, main, light, validator, cache, api=api, need=need)
+    order = sorted(groups, key=lambda k: k != settings.llm_provider)  # выбранный провайдер — первым
+    clients = {n: c for k in order for n, c in groups[k][1].items()}
+    main, light, validator = groups[order[0]][2]
+    return ModelRouter(clients, main, light, validator, cache, apis=[groups[k][0] for k in order],
+                       need=groups[order[0]][3])

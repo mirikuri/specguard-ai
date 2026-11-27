@@ -8,7 +8,7 @@
 
 Нужен Python 3.12 или новее.
 
-**1. Получите бесплатный ключ** на <https://openrouter.ai/settings/keys> (вход через Google или GitHub).
+**1. Получите бесплатный ключ** на <https://openrouter.ai/settings/keys> (вход через Google или GitHub). Вместо него или вместе с ним подойдёт ключ Gemini из Google AI Studio: <https://aistudio.google.com/apikey>.
 
 **2. Установите агента и вставьте ключ:**
 
@@ -16,7 +16,7 @@
 python -m venv .venv
 . .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -e .
-cp .env.example .env            # откройте .env и впишите ключ в OPENROUTER_API_KEY=
+cp .env.example .env            # откройте .env и впишите ключ в OPENROUTER_API_KEY= (или GEMINI_API_KEY=)
 ```
 
 **3. Запустите проверку одной командой:**
@@ -46,13 +46,23 @@ python -m app.cli --input docs/requirements.md --output output/report.md
 
 ## Какая модель используется
 
-Агент работает через [OpenRouter](https://openrouter.ai) и по умолчанию берёт только **бесплатные** модели. Платный ключ не нужен.
+Основной провайдер — [OpenRouter](https://openrouter.ai), запасной — Google Gemini API. По умолчанию используются только **бесплатные** модели, платный ключ не нужен.
 
 | Задача | Модель по умолчанию |
 | --- | --- |
 | Проверка требований и набора | `nvidia/nemotron-3-ultra-550b-a55b:free` |
 | Выделение требований, исправления, независимая перепроверка | `nvidia/nemotron-3.5-super-vl:free` |
 | Запасные, если основная недоступна | `inclusionai/ling-3.2-flash:free`, `particle-ai/particle-1:free`, `google/gemma-4-31b-it:free` |
+
+**Gemini на всякий случай.** Если задан `GEMINI_API_KEY`, агент работает и через Google Gemini API:
+
+| Какие ключи заданы в `.env` | Что происходит |
+| --- | --- |
+| только `OPENROUTER_API_KEY` | работают модели OpenRouter из таблицы выше |
+| только `GEMINI_API_KEY` | работают `gemini-2.5-flash`, запасная `gemini-2.5-flash-lite` |
+| оба | сначала OpenRouter, Gemini подхватывает запросы, если модели OpenRouter недоступны или кончился лимит |
+
+С `LLM_PROVIDER=gemini` первым идёт Gemini. Квоты бесплатного тарифа Gemini меняются, актуальные значения смотрите в AI Studio.
 
 Модели можно сменить в `.env`. В паспорте отчёта указано, какая модель реально выполнила каждый этап.
 

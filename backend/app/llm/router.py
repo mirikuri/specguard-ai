@@ -25,8 +25,11 @@ def short(model: str) -> str:
 class ModelRouter:
     """Этапы распределены по моделям; при недоступности одной запрос уходит следующей."""
 
-    def __init__(self, clients: dict, main: str, light: str, validator: str, cache=None, api=None, need: int = 0):
-        self.clients, self.cache, self.api, self.need = clients, cache, api, need
+    def __init__(self, clients: dict, main: str, light: str, validator: str, cache=None, api=None, need: int = 0,
+                 apis: list | None = None):
+        self.clients, self.cache, self.need = clients, cache, need
+        self.apis = apis if apis is not None else [api] if api else []
+        self.api = self.apis[0] if self.apis else None
         self.roles = {"main": main, "light": light, "validator": validator}
         self.model = main
         self.used: list[str] = []
@@ -37,13 +40,26 @@ class ModelRouter:
         self.pause = 20.0
 
     async def preflight(self) -> None:
-        """До начала анализа: ключ принят и лимита хватит на прогон."""
-        if self.api:
-            await self.api.preflight(self.need)
+        """До начала анализа: ключ принят и лимита хватит на прогон.
+
+        Провайдер, не прошедший проверку, отключается, если есть другой; если не прошёл ни один — ошибка."""
+        failed = []
+        for api in self.apis:
+            try:
+                await api.preflight(self.need)
+            except LLMError as e:
+                failed.append((api, e))
+        if failed and len(failed) == len(self.apis):
+            raise failed[0][1]
+        for api, e in failed:
+            names = [n for n, c in self.clients.items() if getattr(c, "api", None) is api]
+            self._exhausted.update(names)
+            log.warning("провайдер отключён: %s", e)
+            tell("warn", f"{e} Проверка продолжится на других моделях.")
 
     async def close(self) -> None:
-        if self.api:
-            await self.api.close()
+        for api in self.apis:
+            await api.close()
 
     @property
     def degraded(self) -> list[str]:
@@ -83,6 +99,11 @@ class ModelRouter:
             try:
                 out = await self.clients[name].generate(prompt, schema, deadline=deadline)
             except LLMError as e:
+                if e.provider and (rest := self._drop_provider(name)):
+                    log.warning("%s: %s", name, e)
+                    tell("warn", f"{e} Запросы переданы модели {short(rest[0])}.")
+                    last = LLMError(f"{name}: {e}")
+                    continue
                 if not e.can_switch:
                     raise
                 if e.exhausted:
@@ -97,6 +118,12 @@ class ModelRouter:
                 self.cache.put(name, prompt, schema, out)
             return out
         raise last
+
+    def _drop_provider(self, name) -> list[str]:
+        """Отключает все модели провайдера, к которому относится name; возвращает оставшиеся модели."""
+        api = getattr(self.clients[name], "api", None)
+        self._exhausted.update(n for n, c in self.clients.items() if n == name or (api is not None and getattr(c, "api", None) is api))
+        return [n for n in self.clients if n not in self._exhausted]
 
     def _record(self, name, schema, note=""):
         self.used.append(name + note)

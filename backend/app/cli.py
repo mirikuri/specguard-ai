@@ -38,7 +38,7 @@ def main(argv=None) -> int:
         doc = parse_document(a.input.name, a.input.read_bytes(), settings.max_bytes)
         llm = None if a.rules_only else make_llm(settings, ResponseCache(CACHE_DIR) if a.cache else None)
         if llm is None and not a.rules_only:
-            err("не задан OPENROUTER_API_KEY в .env. Без модели доступен режим --rules-only (частичный отчёт).")
+            err("не задан ключ модели в .env (OPENROUTER_API_KEY или GEMINI_API_KEY). Без модели доступен режим --rules-only (частичный отчёт).")
             return 1
         report = asyncio.run(analyze(doc, llm, timeout=settings.analysis_timeout,
                                      on_progress=lambda s, n, m: print(f"[{n:3}%] {m}", flush=True)))

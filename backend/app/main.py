@@ -76,7 +76,8 @@ def create_app() -> FastAPI:
 
     @api.get("/health")
     async def health():
-        return {"status": "ok", "version": agent_version(), "model": settings.llm_model, "model_ready": make_llm(settings) is not None,
+        llm = make_llm(settings)
+        return {"status": "ok", "version": agent_version(), "model": llm.model if llm else settings.llm_model, "model_ready": llm is not None,
                 "stages": [{"id": i, "title": t} for i, t, _ in STAGES]}
 
     @api.post("/documents", status_code=201)
@@ -127,7 +128,7 @@ def create_app() -> FastAPI:
             raise HTTPException(404, "Документ не найден. Загрузите его ещё раз.")
         llm = None if body.rules_only else make_llm(settings)
         if llm is None and not body.rules_only:
-            raise HTTPException(503, "Модель не подключена: администратору нужно задать OPENROUTER_API_KEY.")
+            raise HTTPException(503, "Модель не подключена: администратору нужно задать OPENROUTER_API_KEY или GEMINI_API_KEY.")
         doc = documents[body.document_id]["doc"]
         aid = "analysis_" + secrets.token_urlsafe(9)
         a = {"analysis_id": aid, "document_name": doc.name, "status": "queued", "stage": "", "progress": 0, "message": "В очереди",
